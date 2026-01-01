@@ -1,0 +1,13 @@
+{
+  "$schema": "https://oxc.rs/schema/oxlintrc.json",
+  "extends": ["../../oxlintrc.json"],
+  "plugins": ["import", "typescript", "unicorn", "react"],
+  "env": {
+    "browser": true,
+    "es2024": true
+  },
+  "globals": {
+    "Astro": "readonly"
+  },
+  "ignorePatterns": ["dist", "node_modules", ".astro", "*.d.ts", "*.astro"]
+}

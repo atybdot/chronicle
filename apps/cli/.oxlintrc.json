@@ -1,0 +1,12 @@
+{
+  "$schema": "https://oxc.rs/schema/oxlintrc.json",
+  "extends": ["../../oxlintrc.json"],
+  "env": {
+    "node": true,
+    "es2024": true
+  },
+  "globals": {
+    "Bun": "readonly"
+  },
+  "ignorePatterns": ["dist", "node_modules", "*.d.ts"]
+}

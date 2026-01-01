@@ -1,0 +1,27 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "chronicle-web",
+	"compatibility_date": "2026-02-11",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"main": "./dist/_worker.js/index.js",
+	"assets": {
+		"directory": "./dist",
+		"binding": "ASSETS"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "chronicle-telemetry",
+			"database_id": "1f990b6d-e529-4298-a807-35b363f980e5",
+			"migrations_dir": "./drizzle/migrations"
+		}
+	],
+	"kv_namespaces": [
+		{
+			"binding": "RATE_LIMIT_KV",
+			"id": "de7a4263b76a4826a0c0e303fe88419a"
+		}
+	]
+}

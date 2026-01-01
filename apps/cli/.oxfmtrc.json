@@ -1,0 +1,4 @@
+{
+  "$schema": "https://oxc.rs/schema/oxfmtrc.json",
+  "extends": "../../.oxfmtrc.json"
+}
