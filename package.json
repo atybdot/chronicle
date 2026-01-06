@@ -1,0 +1,29 @@
+{
+  "name": "cimmit-monorepo",
+  "version": "0.1.0",
+  "description": "Monorepo for Chronicle CLI tool",
+  "private": true,
+  "packageManager": "bun@1.2.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "test": "turbo test",
+    "typecheck": "turbo typecheck",
+    "lint": "turbo lint",
+    "format": "turbo format",
+    "check": "turbo typecheck lint",
+    "release": "turbo release"
+  },
+  "devDependencies": {
+    "oxc-resolver": "^5.0.0",
+    "oxlint": "^0.16.0",
+    "turbo": "^2.3.4"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
