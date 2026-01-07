@@ -1,0 +1,8 @@
+{
+  "extends": "./apps/cli/tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist"
+  },
+  "include": ["apps/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
