@@ -1,0 +1,29 @@
+---
+import { Code } from "astro:components";
+const usage = `# Install
+npm install -g @atybdot/chronicle
+
+#usage
+chronicle [options] [command]
+
+# Or use directly
+npx @atybdot/chronicle
+
+# With date range
+chronicle --date-range "30 days ago"
+`;
+---
+
+<section class="bg-zinc-900 rounded-lg">
+    <div class="rounded-lg overflow-hidden">
+        <div class="flex justify-between items-center px-4 py-2 bg-zinc-800">
+            <span class="text-sm text-zinc-500">usage</span>
+        </div>
+        <Code
+            code={usage}
+            theme={"ayu-mirage"}
+            lang="bash"
+            class={"**:bg-transparent! bg-zinc-900! text-sm! px-4 py-6"}
+        />
+    </div>
+</section>

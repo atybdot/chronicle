@@ -1,0 +1,50 @@
+---
+import StarIcon from "@/components/icons/star.astro";
+import ClockUserIcon from "@/components/icons/clock-user.astro";
+import Pen from "./icons/pen.astro";
+import PrivacyIcon from "@/components/icons/privacy.astro";
+type AstroComponent = (_props: Record<string, unknown>) => unknown;
+
+const feats: { title: string; description: string; icon: AstroComponent }[] = [
+    {
+        title: "AI-Powered Analysis",
+        description:
+            "intelligently split complex changes into logical, atomic commits",
+        icon: StarIcon,
+    },
+    {
+        title: "Smart Commit Refinement",
+        description:
+            "Interactive message editing with AI suggestions and consistent style",
+        icon: Pen,
+    },
+    {
+        title: "Realistic Timestamps",
+        description: "natural commit distributions based on working hours",
+        icon: ClockUserIcon,
+    },
+    {
+        title: "Privacy First",
+        description:
+            "All processing happens locally, no code leaves your machine",
+        icon: PrivacyIcon,
+    },
+];
+---
+
+<section class="grid grid-cols-1 md:grid-cols-2 gap-5">
+    {
+        feats.map((feat) => {
+            const Icon = feat.icon;
+            return (
+                <div class="p-6 rounded-lg bg-zinc-900 text-zinc-100">
+                    <div class="text-2xl text-zinc-500 mb-4">{<Icon />}</div>
+                    <h3 class="font-medium mb-2">{feat.title}</h3>
+                    <p class="text-sm leading-relaxed text-zinc-500">
+                        {feat.description}
+                    </p>
+                </div>
+            );
+        })
+    }
+</section>

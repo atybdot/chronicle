@@ -1,0 +1,22 @@
+---
+import ArrowLeft from "./icons/arrow-left.astro";
+
+// BackLink Component - Reusable "<- home" navigation link
+// Usage: <BackLink href="/" text="home" />
+
+interface Props {
+  href?: string;
+  text?: string;
+}
+
+const { href = "/", text = "home" } = Astro.props;
+---
+
+<a
+  href={href}
+  class="back-link text-zinc-600 text-sm hover:text-zinc-400 flex items-center justify-start gap-x-1 w-fit mb-0"
+  style="view-transition-name: back-link;"
+>
+  <ArrowLeft />
+  {text}
+</a>
