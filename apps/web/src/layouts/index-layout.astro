@@ -1,0 +1,221 @@
+---
+import "../styles/global.css";
+import Font from "astro/components/Font.astro";
+import GradientOrb from "@react/gradient-orb";
+import Header from "@/components/header.astro";
+import Footer from "@/components/footer.astro";
+
+interface Props {
+  title?: string;
+  description?: string;
+  keywords?: string;
+  canonicalPath?: string;
+  noindex?: boolean;
+}
+
+const siteUrl = "https://chronicle.atyb.me";
+const defaultTitle = "chronicle — AI-Powered Git Commit History Backfilling";
+const defaultDescription =
+  "Intelligently backfill git commit history by analyzing uncommitted changes and splitting them into atomic, well-organized commits with realistic timestamps.";
+const author = "atybdot";
+const defaultKeywords =
+  "git, commit history, backfill, AI, developer tools, version control, git history, atomic commits, CLI tool";
+
+const {
+  title = defaultTitle,
+  description = defaultDescription,
+  keywords = defaultKeywords,
+  canonicalPath = "",
+  noindex = false,
+} = Astro.props;
+
+const canonicalUrl = canonicalPath ? `${siteUrl}${canonicalPath}` : siteUrl;
+
+// JSON-LD Structured Data
+const websiteSchema = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: "chronicle",
+  url: siteUrl,
+  description: defaultDescription,
+  author: {
+    "@type": "Person",
+    name: author,
+    url: `https://github.com/${author}`,
+  },
+};
+
+const softwareAppSchema = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "chronicle",
+  description: defaultDescription,
+  applicationCategory: "DeveloperApplication",
+  operatingSystem: "Windows, macOS, Linux",
+  offers: {
+    "@type": "Offer",
+    price: 0,
+    priceCurrency: "USD",
+  },
+  author: {
+    "@type": "Person",
+    name: author,
+    url: `https://github.com/${author}`,
+  },
+  downloadUrl: "https://github.com/atybdot/chronicle",
+  softwareVersion: "1.0.0",
+  featureList: [
+    "AI-powered commit message generation",
+    "Atomic commit splitting",
+    "Realistic timestamp generation",
+    "Git history backfilling",
+    "Intelligent change analysis",
+  ],
+};
+
+const faqSchema = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: [
+    {
+      "@type": "Question",
+      name: "What is chronicle?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "Chronicle is an AI-powered CLI tool that intelligently backfills git commit history by analyzing uncommitted changes and splitting them into atomic, well-organized commits with realistic timestamps.",
+      },
+    },
+    {
+      "@type": "Question",
+      name: "How does chronicle work?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "Chronicle analyzes your uncommitted changes, uses AI to understand the logical groupings, and creates atomic commits with meaningful messages and realistic timestamps that reflect when the work was actually done.",
+      },
+    },
+    {
+      "@type": "Question",
+      name: "Is chronicle free to use?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "Yes, chronicle is completely free and open source. You can use it for personal and commercial projects.",
+      },
+    },
+    {
+      "@type": "Question",
+      name: "What operating systems does chronicle support?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "Chronicle supports Windows, macOS, and Linux operating systems, where node.js is available.",
+      },
+    },
+  ],
+};
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+
+    <!-- Primary Meta Tags -->
+    <title>{title}</title>
+    <meta name="title" content={title} />
+    <meta name="description" content={description} />
+    <meta name="keywords" content={keywords} />
+    <meta name="author" content={author} />
+    <meta name="application-name" content="chronicle" />
+    <meta name="license" content="MIT" />
+    <link
+      rel="license"
+      href="https://github.com/atybdot/chronicle/blob/main/LICENSE"
+    />
+    <meta name="theme-color" content="#0a0a0a" />
+    <meta
+      name="robots"
+      content={noindex ? "noindex, nofollow" : "index, follow"}
+    />
+    <link rel="canonical" href={canonicalUrl} />
+    <link rel="sitemap" href="/sitemap-index.xml" />
+
+    <!-- Favicons -->
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="32x32"
+      href="/favicon-32x32.png"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="16x16"
+      href="/favicon-16x16.png"
+    />
+    <link rel="icon" href="/favicon.ico" />
+    <link
+      rel="apple-touch-icon"
+      sizes="180x180"
+      href="/apple-touch-icon.png"
+    />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:site_name" content="chronicle" />
+    <meta property="og:image" content={`${siteUrl}/opengraph.webp`} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="chronicle - AI-Powered Git Commit History Backfilling"
+    />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content={canonicalUrl} />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:creator" content={`@${author}`} />
+    <meta
+      name="twitter:image"
+      content={`${siteUrl}/opengraph.webp`}
+    />
+    <meta
+      name="twitter:image:alt"
+      content="chronicle - AI-Powered Git Commit History Backfilling"
+    />
+
+    <!-- JSON-LD Structured Data -->
+    <script
+      type="application/ld+json"
+      set:html={JSON.stringify(websiteSchema)}
+    />
+    <script
+      type="application/ld+json"
+      set:html={JSON.stringify(softwareAppSchema)}
+    />
+    <script type="application/ld+json" set:html={JSON.stringify(faqSchema)} />
+    <meta
+      name="google-site-verification"
+      content="tScB5dspOXOEsV-TcnLLoiZBlttZQThCHxWLj7lKrgw"
+    />
+
+    <Font cssVariable="--font-geist-mono" preload />
+  </head>
+  <body
+    class="antialiased relative overflow-x-hidden sm:pt-24 max-w-2xl mx-auto"
+  >
+    <GradientOrb client:load duration={10} />
+    <Header />
+    <main data-vaul-drawer-wrapper transition:animate="slide">
+      <slot />
+    </main>
+    <Footer />
+  </body>
+</html>
