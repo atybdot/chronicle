@@ -1,0 +1,46 @@
+---
+import IndexLayout from "../layouts/index-layout.astro";
+import CopyBtn from "@react/copy-btn";
+import TerminalWindow from "@/components/terminal-window.astro";
+import Features from "@/components/features.astro";
+import { Code } from "astro:components";
+import Usage from "@/components/usage.astro";
+import Command from "@/components/command.astro";
+const installCode = "bun i -g @atybdot/chronicle";
+---
+
+<IndexLayout>
+  <main
+    class="max-w-3xl mx-auto px-6 py-12 pt-24 space-y-10"
+    transition:name="page-content"
+  >
+    <section class="space-y-10">
+      <div class="space-y-6">
+        <h1 class="text-4xl font-semibold">Chronicle.</h1>
+        <h2 class="text-zinc-500 text-sm sm:text-base sm:leading-relaxed -mt-4">
+          transform uncommitted changes into atomic, well-organized commits with
+          realistic timestamps using AI.
+        </h2>
+        <div class="relative overflow-hidden rounded-lg">
+          <Code
+            code={installCode}
+            class="flex-1 px-4 py-3 **:bg-transparent! bg-zinc-900!"
+            theme={"ayu-mirage"}
+            lang="bash"
+          />
+
+          <CopyBtn
+            client:load
+            className=" absolute z-10! right-4 top-1/2 -translate-y-1/2"
+            text={installCode}
+          />
+        </div>
+        <TerminalWindow />
+      </div>
+    </section>
+
+    <Features />
+    <Usage />
+    <Command />
+  </main>
+</IndexLayout>
