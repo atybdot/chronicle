@@ -1,0 +1,122 @@
+---
+import BackLink from "@/components/back-link.astro";
+import IndexLayout from "../layouts/index-layout.astro";
+import { Code } from "astro:components";
+
+const pageTitle = "Commands — chronicle";
+const pageDescription = "Chronicle CLI commands and usage reference.";
+const pageKeywords = "chronicle commands, CLI, usage, reference, git backfill";
+
+const commands = [
+  {
+    name: "analyze",
+    description: "Analyze uncommitted changes and generate a commit plan",
+    options: [
+      { flag: "--path", desc: "Path to git repository" },
+      { flag: "--date-range", desc: "Date range (e.g., 'last 30 days')" },
+      { flag: "--include-staged", desc: "Include staged changes" },
+      { flag: "--include-unstaged", desc: "Include unstaged changes" },
+      { flag: "--include-untracked", desc: "Include untracked files" },
+    ],
+  },
+  {
+    name: "backfill",
+    description: "Backfill git history with intelligent commit splitting",
+    options: [
+      { flag: "--path", desc: "Path to git repository" },
+      {
+        flag: "--date-range",
+        desc: "Date range (e.g., 'spread over 2 weeks')",
+      },
+      { flag: "--start-date", desc: "Start date (ISO format)" },
+      { flag: "--end-date", desc: "End date (ISO format)" },
+      { flag: "--dry-run", desc: "Preview without making changes" },
+      { flag: "--interactive", desc: "Interactive mode with prompts" },
+      { flag: "--output", desc: "Output format: visual, json, minimal" },
+    ],
+  },
+  {
+    name: "status",
+    description: "Show status of current repository changes",
+    options: [{ flag: "--path", desc: "Path to git repository" }],
+  },
+];
+
+const configSubcommands = [
+  { name: "init", desc: "Interactive setup wizard" },
+  { name: "show", desc: "Show current configuration" },
+  { name: "set", desc: "Set a configuration value" },
+  { name: "get", desc: "Get a configuration value" },
+  { name: "model", desc: "Change the LLM model" },
+  { name: "provider", desc: "Change the LLM provider" },
+  { name: "prompt", desc: "Set custom AI instructions" },
+  { name: "clear-cache", desc: "Clear the AI response cache" },
+  { name: "cache-stats", desc: "Show cache statistics" },
+  { name: "telemetry", desc: "Manage telemetry settings" },
+];
+---
+
+<IndexLayout
+  title={pageTitle}
+  description={pageDescription}
+  keywords={pageKeywords}
+  canonicalPath="/commands/"
+>
+  <div class="px-6 py-12 pt-24 space-y-8" transition:name="page-content">
+    <BackLink />
+
+    <section>
+      <h1 class="text-3xl font-semibold mb-3">Commands</h1>
+      <p class="text-zinc-500 text-sm">CLI reference for chronicle.</p>
+    </section>
+
+    <section class="space-y-2">
+      <Code
+        code="chronicle [command] [options]"
+        class="px-4 py-2.5 text-sm **:bg-transparent! bg-zinc-900! rounded-lg"
+        theme="ayu-mirage"
+        lang="bash"
+      />
+    </section>
+
+    {
+      commands.map((cmd) => (
+        <section class="space-y-3">
+          <div>
+            <h2 class="text-lg font-medium text-zinc-200">{cmd.name}</h2>
+            <p class="text-sm text-zinc-500">{cmd.description}</p>
+          </div>
+          <div class="p-4 rounded-lg bg-zinc-900">
+            <ul class="text-sm space-y-1.5">
+              {cmd.options.map((opt) => (
+                <li class="flex gap-3">
+                  <code class="text-cyan-400 shrink-0">{opt.flag}</code>
+                  <span class="text-zinc-500">{opt.desc}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      ))
+    }
+
+    <section class="space-y-3">
+      <div>
+        <h2 class="text-lg font-medium text-zinc-200">config</h2>
+        <p class="text-sm text-zinc-500">Configure chronicle settings</p>
+      </div>
+      <div class="p-4 rounded-lg bg-zinc-900">
+        <ul class="text-sm space-y-1.5">
+          {
+            configSubcommands.map((sub) => (
+              <li class="flex gap-3">
+                <code class="text-cyan-400 shrink-0">{sub.name}</code>
+                <span class="text-zinc-500">{sub.desc}</span>
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+    </section>
+  </div>
+</IndexLayout>
