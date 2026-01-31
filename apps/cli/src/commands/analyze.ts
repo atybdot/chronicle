@@ -8,6 +8,7 @@ import {
   getFileContent,
 } from "../lib/git";
 import { analyzeChangesSafe, parseDateRange, formatAIError } from "../lib/ai";
+import { telemetry } from "../lib/telemetry";
 import type { FileChange } from "../types";
 
 export const analyzeProcedure = {
@@ -39,6 +40,14 @@ export async function handleAnalyze(input: {
   includeUntracked?: boolean;
 }) {
   const cwd = input.path ?? process.cwd();
+
+  telemetry.track({
+    event: "command_invoked",
+    properties: {
+      command: "analyze",
+      success: true,
+    },
+  });
 
   if (!(await isGitRepo(cwd))) {
     p.cancel("Not a git repository");
@@ -101,6 +110,17 @@ export async function handleAnalyze(input: {
 
   const analysis = analysisResult.value;
   spinner.stop("Analysis complete!");
+
+  telemetry.track({
+    event: "backfill_plan_generated",
+    properties: {
+      commits_suggested: analysis.suggestedCommits,
+      files_count: allFiles.length,
+      date_range_days: analysis.suggestedDays,
+      dry_run: true,
+      output_format: "visual",
+    },
+  });
 
   let dateRangeInfo: { start: Date; end: Date } | null = null;
   if (input.dateRange) {
