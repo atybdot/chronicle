@@ -19,6 +19,7 @@ import { analyzeChangesSafe, generateCommitMessages, parseDateRange, formatAIErr
 import { distributeCommits } from "../lib/distribution";
 import { loadConfig, saveConfig } from "../lib/config";
 import { renderCommitList, renderPlanSummary, exportPlanAsJson } from "../lib/output";
+import { telemetry, createTimer } from "../lib/telemetry";
 import type { FileChange, PlannedCommit, CommitPlan } from "../types";
 
 function formatDate(date: Date): string {
@@ -34,7 +35,17 @@ export async function handleBackfill(input: {
   interactive?: boolean;
   output?: "visual" | "json" | "minimal";
 }) {
+  const timer = createTimer();
   const cwd = input.path ?? process.cwd();
+
+  telemetry.track({
+    event: "command_invoked",
+    properties: {
+      command: "backfill",
+      interactive: input.interactive ?? false,
+      success: true,
+    },
+  });
 
   if (!(await isGitRepo(cwd))) {
     p.cancel("Not a git repository");
@@ -168,6 +179,17 @@ export async function handleBackfill(input: {
     totalFiles: allFiles.length,
     estimatedDuration: `${analysis.suggestedDays} days`,
   };
+
+  telemetry.track({
+    event: "backfill_plan_generated",
+    properties: {
+      commits_suggested: plannedCommits.length,
+      files_count: allFiles.length,
+      date_range_days: Math.ceil((dateRange.end.getTime() - dateRange.start.getTime()) / (1000 * 60 * 60 * 24)),
+      dry_run: input.dryRun ?? true,
+      output_format: input.output ?? "visual",
+    },
+  });
 
   if (input.output === "json") {
     console.log(exportPlanAsJson(plan));
@@ -407,7 +429,6 @@ export async function handleBackfill(input: {
   }
 
   spinner.start("Executing commits...");
-  await unstageAll(cwd);
 
   let successfulCommits = 0;
   const skippedCommits: string[] = [];
@@ -416,6 +437,9 @@ export async function handleBackfill(input: {
     const commit = distributedCommits[i];
     if (!commit) continue;
     spinner.message(`Commit ${i + 1}/${distributedCommits.length}: ${commit.message}`);
+
+    // Unstage any previously staged files before staging this commit's files
+    await unstageAll(cwd);
 
     const filePaths = commit.files.map((f) => f.path);
     const stagedFiles = await stageFiles(filePaths, cwd);
@@ -436,6 +460,17 @@ export async function handleBackfill(input: {
   }
 
   spinner.stop("All commits processed!");
+
+  telemetry.track({
+    event: "backfill_executed",
+    properties: {
+      commits_created: successfulCommits,
+      commits_skipped: skippedCommits.length,
+      total_files: allFiles.length,
+      duration_ms: timer(),
+      success: successfulCommits > 0,
+    },
+  });
 
   let resultMessage = pc.green(`✅ Successfully created ${successfulCommits} commits!`);
 
