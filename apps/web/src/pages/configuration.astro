@@ -1,0 +1,143 @@
+---
+import BackLink from "@/components/back-link.astro";
+import IndexLayout from "../layouts/index-layout.astro";
+import { Code } from "astro:components";
+
+const pageTitle = "Configuration — chronicle";
+const pageDescription = "Chronicle configuration options and setup guide.";
+const pageKeywords = "chronicle config, configuration, setup, LLM providers, API keys";
+
+const providers = [
+  { name: "OpenAI", key: "openai" },
+  { name: "Anthropic", key: "anthropic" },
+  { name: "Google Gemini", key: "gemini" },
+  { name: "OpenRouter", key: "openrouter" },
+  { name: "Ollama", key: "ollama", hint: "Local, no API key" },
+];
+
+const configOptions = [
+  { key: "llm.provider", desc: "LLM provider", default: "openai" },
+  { key: "llm.model", desc: "Model name", default: "provider default" },
+  { key: "llm.apiKey", desc: "API key", default: "—" },
+  { key: "llm.baseUrl", desc: "Custom endpoint", default: "—" },
+  { key: "llm.customPrompt", desc: "Custom AI instructions", default: "—" },
+  { key: "git.authorName", desc: "Git author name", default: "from git config" },
+  { key: "git.authorEmail", desc: "Git author email", default: "from git config" },
+  { key: "defaults.distribution", desc: "Commit distribution", default: "realistic" },
+  { key: "defaults.dryRun", desc: "Preview by default", default: "true" },
+  { key: "defaults.workHoursStart", desc: "Work hours start", default: "9" },
+  { key: "defaults.workHoursEnd", desc: "Work hours end", default: "18" },
+  { key: "defaults.excludeWeekends", desc: "Skip weekends", default: "false" },
+];
+---
+
+<IndexLayout
+  title={pageTitle}
+  description={pageDescription}
+  keywords={pageKeywords}
+  canonicalPath="/configuration/"
+>
+  <div class="px-6 py-12 pt-24 space-y-8" transition:name="page-content">
+    <BackLink />
+
+    <section>
+      <h1 class="text-3xl font-semibold tracking-tighter mb-3">Configuration</h1>
+      <p class="text-zinc-500 text-sm">
+        Setup and customize chronicle.
+      </p>
+    </section>
+
+    <section class="space-y-3">
+      <h2 class="text-lg font-medium">Quick Setup</h2>
+      <Code
+        code="chronicle config init"
+        class="px-4 py-2.5 text-sm **:bg-transparent! bg-zinc-900! rounded-lg"
+        theme="ayu-mirage"
+        lang="bash"
+      />
+      <p class="text-xs text-zinc-600">
+        Interactive wizard to configure provider, model, and API key.
+      </p>
+    </section>
+
+    <section class="space-y-3">
+      <h2 class="text-lg font-medium">Providers</h2>
+      <div class="p-4 rounded-lg bg-zinc-900">
+        <ul class="text-sm space-y-1.5">
+          {
+            providers.map((p) => (
+              <li class="flex gap-3 items-center">
+                <code class="text-cyan-400">{p.key}</code>
+                <span class="text-zinc-500">{p.name}</span>
+                {p.hint && <span class="text-xs text-zinc-600">({p.hint})</span>}
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+    </section>
+
+    <section class="space-y-3">
+      <h2 class="text-lg font-medium">API Key</h2>
+      <div class="space-y-2">
+        <Code
+          code="export CHRONICLE_AI_KEY=your-api-key"
+          class="px-4 py-2.5 text-sm **:bg-transparent! bg-zinc-900! rounded-lg"
+          theme="ayu-mirage"
+          lang="bash"
+        />
+        <p class="text-xs text-zinc-600">
+          Or enter during <code class="text-zinc-400">config init</code>. Stored locally at <code class="text-zinc-400">~/.config/chronicle/config.json</code>
+        </p>
+      </div>
+    </section>
+
+    <section class="space-y-3">
+      <h2 class="text-lg font-medium">Options</h2>
+      <div class="p-4 rounded-lg bg-zinc-900 overflow-x-auto">
+        <table class="text-sm w-full">
+          <thead>
+            <tr class="text-zinc-400 text-left">
+              <th class="pb-2 pr-4 font-medium">Key</th>
+              <th class="pb-2 pr-4 font-medium">Description</th>
+              <th class="pb-2 font-medium">Default</th>
+            </tr>
+          </thead>
+          <tbody class="text-zinc-500">
+            {
+              configOptions.map((opt) => (
+                <tr>
+                  <td class="py-1 pr-4">
+                    <code class="text-cyan-400">{opt.key}</code>
+                  </td>
+                  <td class="py-1 pr-4">{opt.desc}</td>
+                  <td class="py-1 text-zinc-600">{opt.default}</td>
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="space-y-3">
+      <h2 class="text-lg font-medium">Examples</h2>
+      <div class="space-y-2">
+        <Code
+          code={`# Set a value
+chronicle config set llm.model gpt-4o
+
+# Get a value
+chronicle config get llm.provider
+
+# Show all config
+chronicle config show`}
+          class="px-4 py-3 text-sm **:bg-transparent! bg-zinc-900! rounded-lg"
+          theme="ayu-mirage"
+          lang="bash"
+        />
+      </div>
+    </section>
+
+  </div>
+</IndexLayout>
