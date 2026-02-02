@@ -2,11 +2,20 @@ import * as p from "@clack/prompts";
 import pc from "picocolors";
 import { loadConfig, saveConfig, getConfigPath, hasApiKey, ENV_VAR_NAME } from "../lib/config";
 import { showTelemetryStatus } from "../lib/telemetry-prompt";
-import { telemetry } from "../lib/telemetry";
+import { telemetry, categorizeModel } from "../lib/telemetry";
 import { PROVIDER_CONFIG, type ProviderKey } from "../lib/models";
 import { selectModelWithSearch } from "./helpers";
 
 export async function handleConfigInit() {
+  telemetry.track({
+    event: "command_invoked",
+    properties: {
+      command: "config",
+      subcommand: "init",
+      success: true,
+    },
+  });
+
   p.intro(pc.bgCyan(pc.black(" chronicle setup ")));
 
   const providerOptions = Object.entries(PROVIDER_CONFIG).map(([key, config]) => ({
@@ -106,11 +115,29 @@ export async function handleConfigInit() {
 
   await saveConfig(configToSave);
 
+  telemetry.track({
+    event: "setup_completed",
+    properties: {
+      provider: selectedProvider,
+      model_category: categorizeModel(model ?? ""),
+      api_key_source: apiKey ? "entered" : process.env[ENV_VAR_NAME] ? "environment" : "skipped",
+    },
+  });
+
   p.outro(pc.green("Setup complete!"));
   return true;
 }
 
 export async function handleConfigShow() {
+  telemetry.track({
+    event: "command_invoked",
+    properties: {
+      command: "config",
+      subcommand: "show",
+      success: true,
+    },
+  });
+
   const config = await loadConfig();
   const provider = config.llm.provider as ProviderKey;
   const providerConfig = PROVIDER_CONFIG[provider];
@@ -134,16 +161,37 @@ export async function handleConfigShow() {
 }
 
 export async function handleConfigPrompt(input?: { clear?: boolean; prompt?: string }) {
+  telemetry.track({
+    event: "command_invoked",
+    properties: {
+      command: "config",
+      subcommand: "prompt",
+      success: true,
+    },
+  });
+
   const config = await loadConfig();
 
   if (input?.clear) {
     await saveConfig({ llm: { ...config.llm, customPrompt: undefined } });
+    telemetry.track({
+      event: "config_changed",
+      properties: {
+        key: "customPrompt",
+      },
+    });
     console.log(pc.green("\n✅ Custom prompt cleared\n"));
     return;
   }
 
   if (input?.prompt) {
     await saveConfig({ llm: { ...config.llm, customPrompt: input.prompt } });
+    telemetry.track({
+      event: "config_changed",
+      properties: {
+        key: "customPrompt",
+      },
+    });
     console.log(pc.green("\n✅ Custom prompt set: " + input.prompt + "\n"));
     return;
   }
@@ -195,6 +243,13 @@ export async function handleConfigPrompt(input?: { clear?: boolean; prompt?: str
 
   const newPrompt = (promptInput as string).trim();
 
+  telemetry.track({
+    event: "config_changed",
+    properties: {
+      key: "customPrompt",
+    },
+  });
+
   if (newPrompt) {
     await saveConfig({ llm: { ...config.llm, customPrompt: newPrompt } });
     p.outro(pc.green("✅ Custom prompt saved"));
@@ -205,6 +260,15 @@ export async function handleConfigPrompt(input?: { clear?: boolean; prompt?: str
 }
 
 export async function handleConfigTelemetry(input?: { optOut?: boolean; optIn?: boolean }) {
+  telemetry.track({
+    event: "command_invoked",
+    properties: {
+      command: "config",
+      subcommand: "telemetry",
+      success: true,
+    },
+  });
+
   const envVarName = "CHRONICLE_TELEMETRY";
   const envDisabled =
     process.env[envVarName]?.toLowerCase() === "false" || process.env[envVarName] === "0";
