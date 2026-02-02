@@ -1,0 +1,46 @@
+---
+import BackLink from "@/components/back-link.astro";
+import IndexLayout from "../layouts/index-layout.astro";
+import StatsDashboard from "@react/stats-dashboard";
+import { createDb } from "@/backend/db";
+import { getStats } from "@/backend/routes/telemetry";
+import type { StatsData } from "@/types/stats";
+
+const pageTitle = "Usage Stats — chronicle";
+const pageDescription = "Public telemetry statistics for chronicle CLI usage.";
+const pageKeywords =
+  "chronicle stats, telemetry, usage statistics, CLI analytics";
+
+// This page must be SSR
+export const prerender = false;
+
+// Fetch stats server-side directly
+const runtime = Astro.locals.runtime;
+const db = createDb(runtime.env.DB);
+const stats: StatsData = await getStats(db, 7);
+---
+
+<IndexLayout
+  title={pageTitle}
+  description={pageDescription}
+  keywords={pageKeywords}
+  canonicalPath="/stats/"
+>
+  <div class="px-6 py-12 pt-24 space-y-8" transition:name="page-content">
+    <BackLink />
+
+    <section>
+      <h1 class="text-3xl font-semibold tracking-tighter mb-3">Usage Stats</h1>
+      <p class="text-zinc-500 text-sm">
+        Public telemetry statistics from chronicle CLI.
+        <a href="/telemetry" class="text-sky-500 hover:text-sky-400 underline"
+          >Learn what we collect</a
+        >.
+      </p>
+    </section>
+
+    <section class="pb-8">
+      <StatsDashboard stats={stats} days={7} client:load />
+    </section>
+  </div>
+</IndexLayout>
