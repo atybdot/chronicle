@@ -1,0 +1,110 @@
+---
+import BackLink from "@/components/back-link.astro";
+import IndexLayout from "../layouts/index-layout.astro";
+import { Code } from "astro:components";
+
+const pageTitle = "Telemetry — chronicle";
+const pageDescription = "What chronicle collects, why, and how to opt-out.";
+const pageKeywords = "chronicle telemetry, privacy, opt-out, anonymous data";
+
+const collected = [
+  "Command names & duration",
+  "Commit/file counts",
+  "AI provider & latency",
+  "CLI version & OS type",
+];
+
+const notCollected = [
+  "Source code or file contents",
+  "Commit messages or git history",
+  "File names, paths, or repo URLs",
+  "API keys, credentials, or PII",
+];
+---
+
+<IndexLayout
+  title={pageTitle}
+  description={pageDescription}
+  keywords={pageKeywords}
+  canonicalPath="/telemetry/"
+>
+  <div class="px-6 py-12 pt-24 space-y-8" transition:name="page-content">
+    <BackLink />
+
+    <section>
+      <h1 class="text-3xl font-semibold tracking-tighter mb-3">Telemetry</h1>
+      <p class="text-zinc-500 text-sm">
+        Anonymous usage data to improve chronicle. No code, no personal info.
+      </p>
+    </section>
+
+    <section class="grid md:grid-cols-2 gap-4">
+      <div class="p-4 rounded-lg bg-zinc-900">
+        <h2 class="text-sm font-medium text-zinc-300 mb-3">Collected</h2>
+        <ul class="text-sm text-zinc-500 space-y-1">
+          {
+            collected.map((item) => (
+              <li class="flex items-center gap-2">
+                <span class="text-green-500">+</span>
+                {item}
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+
+      <div class="p-4 rounded-lg bg-zinc-900">
+        <h2 class="text-sm font-medium text-zinc-300 mb-3">Not Collected</h2>
+        <ul class="text-sm text-zinc-500 space-y-1">
+          {
+            notCollected.map((item) => (
+              <li class="flex items-center gap-2">
+                <span class="text-red-500">-</span>
+                {item}
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+    </section>
+
+    <section class="space-y-3">
+      <h2 class="text-lg font-medium">Opt-Out</h2>
+      <div class="space-y-2">
+        <Code
+          code="chronicle config telemetry --opt-out"
+          class="px-4 py-2.5 text-sm **:bg-transparent! bg-zinc-900! rounded-lg"
+          theme="ayu-mirage"
+          lang="bash"
+        />
+        <p class="text-xs text-zinc-600">
+          Or set <code class="text-zinc-400">CHRONICLE_TELEMETRY=false</code> in your
+          shell.
+        </p>
+      </div>
+    </section>
+
+    <section class="text-sm text-zinc-600 space-y-2 pb-8">
+      <p>
+        Data stored locally at <code class="text-zinc-400"
+          >~/.config/chronicle/telemetry.json</code
+        >
+      </p>
+      <p>
+        <a
+          href="https://github.com/atybdot/chronicle/blob/main/apps/cli/src/lib/telemetry.ts"
+          class="text-sky-500 hover:text-sky-400 underline"
+          target="_blank"
+          rel="noopener noreferrer">View source</a
+        >
+        <span class="text-zinc-700 mx-2">·</span>
+        <a
+          href="https://github.com/atybdot/chronicle/issues"
+          class="text-sky-500 hover:text-sky-400 underline"
+          target="_blank"
+          rel="noopener noreferrer">Questions?</a
+        >
+      </p>
+    </section>
+  </div>
+</IndexLayout>
