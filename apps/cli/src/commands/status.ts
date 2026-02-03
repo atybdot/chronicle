@@ -1,9 +1,18 @@
 import * as p from "@clack/prompts";
 import pc from "picocolors";
 import { isGitRepo, getGitStatus, getGitRoot } from "../lib/git";
+import { telemetry } from "../lib/telemetry";
 
 export async function handleStatus(input?: { path?: string }) {
   const cwd = input?.path ?? process.cwd();
+
+  telemetry.track({
+    event: "command_invoked",
+    properties: {
+      command: "status",
+      success: true,
+    },
+  });
 
   if (!(await isGitRepo(cwd))) {
     p.cancel("Not a git repository");
