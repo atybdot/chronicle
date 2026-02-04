@@ -9,6 +9,7 @@ import { loadConfig, getApiKey, getCustomPrompt } from "./config";
 import { NoApiKeyError, AIApiError } from "./errors";
 import { PROVIDER_CONFIG, type ProviderKey } from "./models";
 import { getCache, setCache, CacheNamespaces, generateCacheKey } from "./cache";
+import { telemetry, categorizeModel, createTimer } from "./telemetry";
 
 /**
  * Append custom prompt to the base prompt if configured
@@ -148,12 +149,18 @@ async function generateObjectWithCache<T>({
   prompt,
   cacheKey,
   ttl,
+  requestType,
+  provider,
+  modelId,
 }: {
   model: ReturnType<ReturnType<typeof createOpenAI>>;
   schema: z.ZodSchema<T>;
   prompt: string;
   cacheKey: string;
   ttl?: number;
+  requestType: "analyze" | "commit_messages" | "date_parse";
+  provider: string;
+  modelId: string;
 }): Promise<{ object: T }> {
   // Try to get from cache first
   const cached = await getCache<{ object: T }>(cacheKey, {
@@ -162,40 +169,74 @@ async function generateObjectWithCache<T>({
   });
 
   if (cached) {
+    telemetry.track({
+      event: "ai_request_made",
+      properties: {
+        provider,
+        model_category: categorizeModel(modelId),
+        request_type: requestType,
+        latency_ms: 0,
+        cache_hit: true,
+        success: true,
+      },
+    });
     return cached;
   }
 
-  // Generate new response with retry logic
-  const result = await withRetry(
-    async () => {
-      return await generateObject({
-        model,
-        schema,
-        prompt,
-      });
-    },
-    {
-      shouldRetry: (error: unknown) => {
-        const errorStr = String(error);
-        // Retry on JSON/parsing errors (common with free/small models)
-        return (
-          errorStr.includes("JSON") ||
-          errorStr.includes("parse") ||
-          errorStr.includes("NoObjectGeneratedError") ||
-          errorStr.includes("Unterminated") ||
-          errorStr.includes("truncated")
-        );
+  const timer = createTimer();
+  let success = true;
+  let errorType: string | undefined;
+
+  try {
+    // Generate new response with retry logic
+    const result = await withRetry(
+      async () => {
+        return await generateObject({
+          model,
+          schema,
+          prompt,
+        });
       },
-    },
-  );
+      {
+        shouldRetry: (error: unknown) => {
+          const errorStr = String(error);
+          // Retry on JSON/parsing errors (common with free/small models)
+          return (
+            errorStr.includes("JSON") ||
+            errorStr.includes("parse") ||
+            errorStr.includes("NoObjectGeneratedError") ||
+            errorStr.includes("Unterminated") ||
+            errorStr.includes("truncated")
+          );
+        },
+      },
+    );
 
-  // Cache the result
-  await setCache(cacheKey, result, {
-    namespace: CacheNamespaces.AI_RESPONSES,
-    ttl,
-  });
+    // Cache the result
+    await setCache(cacheKey, result, {
+      namespace: CacheNamespaces.AI_RESPONSES,
+      ttl,
+    });
 
-  return result;
+    return result;
+  } catch (error) {
+    success = false;
+    errorType = error instanceof Error ? error.message : String(error);
+    throw error;
+  } finally {
+    telemetry.track({
+      event: "ai_request_made",
+      properties: {
+        provider,
+        model_category: categorizeModel(modelId),
+        request_type: requestType,
+        latency_ms: timer(),
+        cache_hit: false,
+        success,
+        error_type: errorType,
+      },
+    });
+  }
 }
 
 // Re-export for backward compatibility
@@ -477,6 +518,9 @@ Provide your analysis with recommended commit groups. Be AGGRESSIVE in splitting
               prompt,
               cacheKey,
               ttl: 24 * 60 * 60 * 1000, // 24 hours
+              requestType: "analyze",
+              provider: config.llm.provider,
+              modelId: config.llm.model ?? "",
             }),
           catch: (e) => {
             return new AIApiError({
@@ -527,6 +571,7 @@ export async function generateCommitMessages(
   existingMessages: string[] = [],
 ): Promise<string[]> {
   const model = await getModel();
+  const config = await loadConfig();
 
   const styleHint =
     existingMessages.length > 0
@@ -570,6 +615,9 @@ Generate concise but descriptive commit messages. Focus on "why" not "what". Eac
     prompt: promptText,
     cacheKey,
     ttl: 24 * 60 * 60 * 1000, // 24 hours
+    requestType: "commit_messages",
+    provider: config.llm.provider,
+    modelId: config.llm.model ?? "",
   });
 
   // Sort by index and return messages
@@ -581,6 +629,7 @@ Generate concise but descriptive commit messages. Focus on "why" not "what". Eac
  */
 export async function parseDateRange(input: string): Promise<{ start: Date; end: Date }> {
   const model = await getModel();
+  const config = await loadConfig();
   const now = new Date();
 
   const promptText = `Parse this natural language date range into day offsets from today.
@@ -608,6 +657,9 @@ Return the offsets as positive integers.`;
     prompt: promptText,
     cacheKey,
     ttl: 7 * 24 * 60 * 60 * 1000, // 7 days - date parsing results don't change often
+    requestType: "date_parse",
+    provider: config.llm.provider,
+    modelId: config.llm.model ?? "",
   });
 
   const start = new Date(now);
