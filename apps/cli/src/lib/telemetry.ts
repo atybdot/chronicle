@@ -7,9 +7,8 @@ import { join } from "path";
 // Configuration
 // ============================================================================
 
-// Chronicle telemetry API endpoint (integrated with main website)
-const TELEMETRY_ENDPOINT = "https://chronicle.atyb.me/api";
-
+// Chronicle telemetry API endpoint (Cloudflare Worker)
+const TELEMETRY_ENDPOINT = process.env.TELEMETRY_ENDPOINT || "https://chronicle-telemetry.atyb.workers.dev";
 const TELEMETRY_DIR = join(homedir(), ".config", "chronicle");
 const TELEMETRY_FILE = join(TELEMETRY_DIR, "telemetry.json");
 
