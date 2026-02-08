@@ -1,6 +1,6 @@
 "use client"
 
-import type { NavLinks } from "@/types";
+import type { NavLinks } from "@/types/types";
 import { useState } from "react";
 import {
   Drawer,
@@ -10,6 +10,8 @@ import {
   DrawerTrigger,
 } from "@/components/ui/drawer";
 import { cn } from "@/lib/utils";
+import GithubIcon from "../icons/github";
+import NpmIcon from "../icons/npm";
 
 function SidebarIcon({ isOpen }: { isOpen: boolean }) {
   return (
@@ -44,14 +46,32 @@ export default function MobileNav({ links, currentPath }: MobileNavProps) {
 
   return (
     <Drawer open={isOpen} onOpenChange={setIsOpen} shouldScaleBackground>
-      <DrawerTrigger asChild>
-        <button
-          className="text-zinc-500 hover:text-zinc-100 transition-colors p-1"
-          aria-label="Open menu"
+      <div className="flex items-center gap-4">
+        <a
+          href="https://github.com/atybdot/chronicle"
+          target="_blank"
+          rel="noopener noreferrer"
         >
-          <SidebarIcon isOpen={isOpen} />
-        </button>
-      </DrawerTrigger>
+          <GithubIcon />
+        </a>
+        <a
+          href="https://www.npmjs.com/packages/@atybdot/chronicle"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="-ml-2"
+        >
+          <NpmIcon />
+        </a>
+        <DrawerTrigger asChild>
+          <button
+            className="text-zinc-500 hover:text-zinc-100 transition-colors p-1"
+            aria-label="Open menu"
+          >
+            <SidebarIcon isOpen={isOpen} />
+          </button>
+        </DrawerTrigger>
+      </div>
+
       <DrawerContent className="bg-zinc-900 border-zinc-800 max-w-md mx-auto inset-x-2 rounded-t-xl">
         <DrawerHeader>
           <DrawerTitle className="text-zinc-700 text-xs uppercase tracking-wider">
