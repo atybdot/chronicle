@@ -7,7 +7,26 @@ interface SimplePieChartProps {
   className?: string;
 }
 
-export function SimplePieChart({ data, className = "h-[250px]" }: SimplePieChartProps) {
+function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: { name: string } }> }) {
+  if (active && payload && payload.length) {
+    return (
+      <div
+        style={{
+          backgroundColor: 'var(--color-zinc-900)',
+          border: '1px solid #27272a',
+          borderRadius: '6px',
+          color: '#a1a1aa',
+          padding: '6px 12px'
+        }}
+      >
+        <span style={{ color: 'var(--color-zinc-500)' }}>{payload[0].payload.name}</span>
+      </div>
+    );
+  }
+  return null;
+}
+
+export function SimplePieChart({ data, className = "h-62.5" }: SimplePieChartProps) {
   if (!data || data.length === 0) {
     return (
       <div className={`${className} flex items-center justify-center text-zinc-500 text-sm`}>
@@ -20,15 +39,7 @@ export function SimplePieChart({ data, className = "h-[250px]" }: SimplePieChart
     <div className={className}>
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
-          <Tooltip 
-            contentStyle={{ 
-              backgroundColor: '#18181b', 
-              border: '1px solid #27272a',
-              borderRadius: '6px',
-              color: '#a1a1aa'
-            }}
-            itemStyle={{ color: '#e4e4e7' }}
-          />
+          <Tooltip content={<CustomTooltip />} />
           <Pie
             data={data}
             cx="50%"
