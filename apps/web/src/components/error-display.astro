@@ -1,0 +1,21 @@
+---
+interface Props {
+  title?: string;
+  message?: string;
+}
+
+const { title = "Something went wrong", message = "An error occurred while loading this page." } = Astro.props;
+---
+
+<div class="px-6 py-12 pt-24 space-y-8">
+  <section class="text-center py-12">
+    <h1 class="text-3xl font-semibold tracking-tighter mb-3 text-red-400">{title}</h1>
+    <p class="text-zinc-500 text-sm mb-6">{message}</p>
+    <a
+      href="/"
+      class="inline-block px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm text-zinc-300 transition-colors"
+    >
+      Go Home
+    </a>
+  </section>
+</div>

@@ -1,0 +1,11 @@
+---
+import IndexLayout from "../layouts/index-layout.astro";
+import ErrorDisplay from "@/components/error-display.astro";
+
+const pageTitle = "Error — chronicle";
+const pageDescription = "An error occurred";
+---
+
+<IndexLayout title={pageTitle} description={pageDescription} noindex>
+  <ErrorDisplay />
+</IndexLayout>
