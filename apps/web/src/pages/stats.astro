@@ -2,22 +2,35 @@
 import BackLink from "@/components/back-link.astro";
 import IndexLayout from "../layouts/index-layout.astro";
 import StatsDashboard from "@react/stats-dashboard";
-import { createDb } from "@/backend/db";
-import { getStats } from "@/backend/routes/telemetry";
 import type { StatsData } from "@/types/stats";
 
 const pageTitle = "Usage Stats — chronicle";
 const pageDescription = "Public telemetry statistics for chronicle CLI usage.";
-const pageKeywords =
-  "chronicle stats, telemetry, usage statistics, CLI analytics";
+const pageKeywords = "chronicle stats, telemetry, usage statistics, CLI analytics";
 
-// This page must be SSR
 export const prerender = false;
 
-// Fetch stats server-side directly
-const runtime = Astro.locals.runtime;
-const db = createDb(runtime.env.DB);
-const stats: StatsData = await getStats(db, 7);
+const TELEMETRY_API = import.meta.env.TELEMETRY_API_URL || "https://chronicle-telemetry.atyb.workers.dev";
+
+let stats: StatsData;
+try {
+  const response = await fetch(`${TELEMETRY_API}/v1/stats?days=7`);
+  stats = await response.json();
+} catch (error) {
+  console.error("Failed to fetch stats:", error);
+  stats = {
+    unique_users: 0,
+    total_commits: 0,
+    total_files: 0,
+    total_backfills: 0,
+    ai_providers: {},
+    ai_requests: 0,
+    activity_by_day: [],
+    commands: {},
+    date_ranges: {},
+    model_categories: {},
+  };
+}
 ---
 
 <IndexLayout
