@@ -96,3 +96,5 @@ Configure LLM provider and model, git author details, and commit distribution se
 - [Configuration Guide](https://chronicle.atyb.me/configuration)
 - [Telemetry](https://chronicle.atyb.me/telemetry)
 - [Stats](https://chronicle.atyb.me/stats)
+- [github](https://github.com/atybdot/chronicle)
+- [npm](https://www.npmjs.com/packages/@atybdot/chronicle)
