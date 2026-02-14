@@ -2,6 +2,7 @@
 import "../styles/global.css";
 import Font from "astro/components/Font.astro";
 import GradientOrb from "@react/gradient-orb";
+import { ErrorBoundary } from "@react/error-boundary";
 import Header from "@/components/header.astro";
 import Footer from "@/components/footer.astro";
 
@@ -211,7 +212,9 @@ const faqSchema = {
   <body
     class="antialiased relative overflow-x-hidden sm:pt-24 max-w-2xl mx-auto"
   >
-    <GradientOrb client:load duration={10} />
+    <ErrorBoundary client:load fallback={null}>
+      <GradientOrb client:load duration={10} />
+    </ErrorBoundary>
     <Header />
     <main data-vaul-drawer-wrapper transition:animate="slide">
       <slot />
