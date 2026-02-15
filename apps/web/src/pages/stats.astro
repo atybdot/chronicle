@@ -2,6 +2,7 @@
 import BackLink from "@/components/back-link.astro";
 import IndexLayout from "../layouts/index-layout.astro";
 import StatsDashboard from "@react/stats-dashboard";
+import { ErrorBoundary } from "@react/error-boundary";
 import type { StatsData } from "@/types/stats";
 
 const pageTitle = "Usage Stats — chronicle";
@@ -14,7 +15,9 @@ const TELEMETRY_API = import.meta.env.TELEMETRY_API_URL || "https://chronicle-te
 
 let stats: StatsData;
 try {
-  const response = await fetch(`${TELEMETRY_API}/v1/stats?days=7`);
+  const response = await fetch(`${TELEMETRY_API}/v1/stats?days=7`, {
+    signal: AbortSignal.timeout(5000),
+  });
   stats = await response.json();
 } catch (error) {
   console.error("Failed to fetch stats:", error);
@@ -53,7 +56,9 @@ try {
     </section>
 
     <section class="pb-8">
-      <StatsDashboard stats={stats} days={7} client:load />
+      <ErrorBoundary client:load>
+        <StatsDashboard stats={stats} days={7} client:load />
+      </ErrorBoundary>
     </section>
   </div>
 </IndexLayout>
