@@ -1,43 +1,87 @@
-# Astro Starter Kit: Minimal
+# Chronicle Website
 
-```sh
-bun create astro@latest -- --template minimal
+Official documentation website for Chronicle CLI, built with [Astro](https://astro.build) and deployed on [Cloudflare Pages](https://pages.cloudflare.com).
+
+## Overview
+
+This is the public-facing website for Chronicle CLI tool. It includes:
+
+- **Landing Page** - Features, quick start guide, and usage examples
+- **Commands Reference** - Complete CLI command documentation
+- **Configuration Guide** - Settings and environment variables
+- **Telemetry Dashboard** - Anonymous usage statistics (opt-in)
+
+## Tech Stack
+
+- **Framework**: [Astro](https://astro.build) 6.0 (beta)
+- **UI**: React 19 + Tailwind CSS 4
+- **Components**: shadcn/ui patterns
+- **Database**: Cloudflare D1 (telemetry)
+- **Deployment**: Cloudflare Pages + Workers
+
+## Project Structure
+
+```
+src/
+├── components/          # Astro and React components
+│   ├── react/          # React components
+│   └── ui/             # Reusable UI components
+├── pages/              # Astro pages (routes)
+│   ├── index.astro     # Landing page
+│   ├── commands.astro # CLI commands reference
+│   ├── configuration.astro
+│   └── telemetry.astro
+├── layouts/            # Page layouts
+├── backend/            # API routes (Cloudflare Workers)
+│   ├── routes/        # API endpoints
+│   └── db/           # D1 database schema
+└── styles/            # Global CSS
 ```
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+## Commands
 
-## 🚀 Project Structure
+| Command | Action |
+|---------|--------|
+| `bun dev` | Start local dev server |
+| `bun build` | Build for production |
+| `bun preview` | Preview production build locally |
+| `bun deploy` | Deploy to Cloudflare Pages |
 
-Inside of your Astro project, you'll see the following folders and files:
+### Database Commands
 
-```text
-/
-├── public/
-├── src/
-│   └── pages/
-│       └── index.astro
-└── package.json
+| Command | Action |
+|---------|--------|
+| `bun db:migrate` | Run D1 migrations (remote) |
+| `bun db:migrate:local` | Run D1 migrations (local) |
+| `bun db:generate` | Generate Drizzle schema |
+| `bun db:seed` | Seed local database with demo data |
+| `bun db:seed:remote` | Seed remote database with demo data |
+
+## Development
+
+```bash
+# Install dependencies
+bun install
+
+# Start development server
+bun dev
+
+# Build for production
+bun build
+
+# Preview production build
+bun preview
 ```
 
-Astro looks for `.astro` or `.md` files in the `src/pages/` directory. Each page is exposed as a route based on its file name.
+## Deployment
 
-There's nothing special about `src/components/`, but that's where we like to put any Astro/React/Vue/Svelte/Preact components.
+The site automatically deploys to Cloudflare Pages via GitHub Actions on push to main.
 
-Any static assets, like images, can be placed in the `public/` directory.
+```bash
+# Manual deployment
+bun run deploy
+```
 
-## 🧞 Commands
+## License
 
-All commands are run from the root of the project, from a terminal:
-
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `bun install`             | Installs dependencies                            |
-| `bun dev`             | Starts local dev server at `localhost:4321`      |
-| `bun build`           | Build your production site to `./dist/`          |
-| `bun preview`         | Preview your build locally, before deploying     |
-| `bun astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `bun astro -- --help` | Get help using the Astro CLI                     |
-
-## 👀 Want to learn more?
-
-Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
+MIT
