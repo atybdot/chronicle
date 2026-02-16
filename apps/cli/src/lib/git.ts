@@ -1,5 +1,6 @@
 import { $ } from "bun";
-import type { FileChange } from "../types";
+import type { FileChange, FileHunkSpec } from "../types";
+import { parseDiffIntoHunks, createPartialPatch, stagePartialPatch, getHunksByRange } from "./hunks";
 
 export interface GitStatus {
   staged: FileChange[];
@@ -179,6 +180,78 @@ export async function stageFiles(files: string[], cwd?: string): Promise<string[
   }
 
   return files;
+}
+
+export interface StagedHunkResult {
+  success: boolean;
+  filesStaged: string[];
+  error?: string;
+}
+
+export async function stageFileHunks(
+  fileHunks: FileHunkSpec[],
+  diffs: Map<string, string>,
+  cwd?: string,
+): Promise<StagedHunkResult> {
+  const workdir = cwd ?? process.cwd();
+  const gitRoot = await getGitRoot(workdir);
+  const filesStaged: string[] = [];
+  
+  for (const fileHunk of fileHunks) {
+    const diff = diffs.get(fileHunk.path);
+    
+    if (!diff) {
+      await $`git add -- ${fileHunk.path}`.cwd(gitRoot);
+      filesStaged.push(fileHunk.path);
+      continue;
+    }
+    
+    if (fileHunk.hunks.length === 0) {
+      continue;
+    }
+    
+    const fileHunksData = parseDiffIntoHunks(diff, fileHunk.path, "modified");
+    
+    if (fileHunksData.isNewFile) {
+      await $`git add -- ${fileHunk.path}`.cwd(gitRoot);
+      filesStaged.push(fileHunk.path);
+      continue;
+    }
+    
+    if (fileHunksData.isDeletedFile) {
+      await $`git add -- ${fileHunk.path}`.cwd(gitRoot);
+      filesStaged.push(fileHunk.path);
+      continue;
+    }
+    
+    const hunkIndices = getHunksByRange(fileHunksData, fileHunk.hunks);
+    
+    if (hunkIndices.length === 0) {
+      const allHunkIndices = fileHunksData.hunks.map((_, i) => i);
+      const patch = createPartialPatch(fileHunksData, allHunkIndices);
+      if (patch) {
+        const success = await stagePartialPatch(patch, gitRoot);
+        if (success) {
+          filesStaged.push(fileHunk.path);
+        }
+      }
+      continue;
+    }
+    
+    const patch = createPartialPatch(fileHunksData, hunkIndices);
+    
+    if (patch) {
+      const success = await stagePartialPatch(patch, gitRoot);
+      if (success) {
+        filesStaged.push(fileHunk.path);
+      }
+    }
+  }
+  
+  return {
+    success: filesStaged.length > 0,
+    filesStaged,
+  };
 }
 
 /**

@@ -11,6 +11,29 @@ import { PROVIDER_CONFIG, type ProviderKey } from "./models";
 import { getCache, setCache, CacheNamespaces, generateCacheKey } from "./cache";
 import { telemetry, categorizeModel, createTimer } from "./telemetry";
 
+const FileHunkSchema = z.object({
+  path: z.string().describe("File path"),
+  lineRanges: z.array(
+    z.object({
+      start: z.number().describe("Starting line number in the final file"),
+      end: z.number().describe("Ending line number in the final file (exclusive)"),
+      description: z.string().optional().describe("Brief description of what these lines do"),
+    })
+  ).describe("Line ranges in this file that belong to this commit group"),
+});
+
+export type AnalysisGroup = {
+  name: string;
+  description: string;
+  files: string[];
+  fileHunks: Array<{
+    path: string;
+    lineRanges: Array<{ start: number; end: number }>;
+  }>;
+  category: string;
+  order: number;
+};
+
 /**
  * Append custom prompt to the base prompt if configured
  */
@@ -425,46 +448,42 @@ export async function analyzeChangesSafe(
       suggestedCommits: number;
       suggestedDays: number;
       reasoning: string;
-      groups: Array<{
-        name: string;
-        description: string;
-        files: string[];
-        category: string;
-        order: number;
-      }>;
+      groups: Array<AnalysisGroup>;
     },
     NoApiKeyError | AIApiError
   >
 > {
-  // Build prompt with custom instructions outside the generator
   const fileSummary = files
     .map((f) => {
       const diff = diffs.get(f.path) ?? untrackedContent.get(f.path) ?? "";
-      const truncatedDiff = diff.length > 2000 ? diff.slice(0, 2000) + "\n... (truncated)" : diff;
-      return `### ${f.path} (${f.status})\n\`\`\`\n${truncatedDiff}\n\`\`\``;
+      const truncatedDiff = diff.length > 3000 ? diff.slice(0, 3000) + "\n... (truncated)" : diff;
+      const lineCount = truncatedDiff.split("\n").length;
+      return `### ${f.path} (${f.status}) - ${lineCount} lines\n\`\`\`diff\n${truncatedDiff}\n\`\`\``;
     })
     .join("\n\n");
 
-  const basePrompt = `You are an expert developer analyzing code changes to create a realistic git commit history.
+  const basePrompt = `You are an expert developer analyzing code changes to create atomic, well-structured git commits.
 
-Analyze the following file changes and determine how to split them into ATOMIC, logical commits that follow best practices:
+## Task
+Analyze the following file changes and determine how to split them into ATOMIC commits. You MUST specify which LINE RANGES in each file belong to each commit.
 
-## CRITICAL: Atomic Commit Guidelines
-- SPLIT aggressively: Each commit should contain ONLY related changes that can be understood and reviewed in isolation
-- NEVER combine unrelated changes: A bugfix and a feature, or two unrelated features, should be SEPARATE commits
-- One concern per commit: If files serve different purposes (e.g., styles, types, implementation), split them
-- File-level atomicity: Split files that have unrelated changes within them
-- Minimum viable commits: When in doubt, prefer MORE commits over fewer
-- Test changes: Group test files with the code they test
+## CRITICAL: Line Range Requirements
+- For EVERY file in a commit group, specify the exact line ranges (start-end) that belong to that commit
+- Line numbers refer to the NEW/modified file (the result after changes)
+- For new files, the line range is typically the entire file content
+- For deletions, specify the ranges that were deleted
+- Split files at logical boundaries: different functions, classes, or logical sections
+- Line ranges should NOT overlap between commit groups for the same file
 
-## Ordering Requirements
-1. Dependencies first: Types/interfaces before implementations, configs before code that uses them
-2. No forward dependencies: Earlier commits must not depend on later commits
-3. Self-contained: Each commit should work on its own if applied
+## Atomic Commit Guidelines
+- Each commit should contain ONLY related changes
+- Split aggressively: prefer more commits over fewer
+- Group related hunks together, even if from different files
+- Consider dependencies: types before implementations
 
-## Conventional Categories
+## Categories
 - setup: Initial setup, configs, dependencies
-- feature: New features and functionality
+- feature: New features and functionality  
 - fix: Bug fixes
 - refactor: Code restructuring without behavior change
 - docs: Documentation only
@@ -472,12 +491,12 @@ Analyze the following file changes and determine how to split them into ATOMIC, 
 - chore: Maintenance, tooling, build changes
 - style: Formatting, linting, cosmetic changes
 
-Files and their changes:
+## Files and their changes:
 ${fileSummary}
 
 Total files: ${files.length}
 
-Provide your analysis with recommended commit groups. Be AGGRESSIVE in splitting - aim for 1-2 files per commit when possible, never combine unrelated changes.`;
+Provide commit groups with SPECIFIC line ranges for each file. Be precise with line numbers.`;
 
   const prompt = await buildPrompt(basePrompt);
   const cacheKey = generateCacheKey({ prompt, fileSummary });
@@ -501,6 +520,7 @@ Provide your analysis with recommended commit groups. Be AGGRESSIVE in splitting
                     name: z.string(),
                     description: z.string(),
                     files: z.array(z.string()),
+                    fileHunks: z.array(FileHunkSchema),
                     category: z.enum([
                       "setup",
                       "feature",
@@ -517,7 +537,7 @@ Provide your analysis with recommended commit groups. Be AGGRESSIVE in splitting
               }),
               prompt,
               cacheKey,
-              ttl: 24 * 60 * 60 * 1000, // 24 hours
+              ttl: 24 * 60 * 60 * 1000,
               requestType: "analyze",
               provider: config.llm.provider,
               modelId: config.llm.model ?? "",
@@ -531,13 +551,11 @@ Provide your analysis with recommended commit groups. Be AGGRESSIVE in splitting
           },
         },
         {
-          // Retry configuration for transient API failures
           retry: {
             times: 3,
             delayMs: 1000,
             backoff: "exponential",
             shouldRetry: (e) => {
-              // Only retry on network/rate limit errors, not validation errors
               const message =
                 e instanceof Error ? e.message.toLowerCase() : String(e).toLowerCase();
               return (
@@ -554,7 +572,24 @@ Provide your analysis with recommended commit groups. Be AGGRESSIVE in splitting
       ),
     );
 
-    return Result.ok(apiResult.object);
+    const groups: AnalysisGroup[] = apiResult.object.groups.map((g) => ({
+      name: g.name,
+      description: g.description,
+      files: g.files,
+      fileHunks: g.fileHunks.map((fh) => ({
+        path: fh.path,
+        lineRanges: fh.lineRanges.map((lr) => ({ start: lr.start, end: lr.end })),
+      })),
+      category: g.category,
+      order: g.order,
+    }));
+
+    return Result.ok({
+      suggestedCommits: apiResult.object.suggestedCommits,
+      suggestedDays: apiResult.object.suggestedDays,
+      reasoning: apiResult.object.reasoning,
+      groups,
+    });
   });
 }
 

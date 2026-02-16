@@ -1,11 +1,20 @@
 import { z } from "zod";
 
-// Commit plan schemas
+export interface LineRange {
+  start: number;
+  end: number;
+}
+
+export interface FileHunkSpec {
+  path: string;
+  hunks: LineRange[];
+}
+
 export const FileChangeSchema = z.object({
   path: z.string(),
   status: z.enum(["added", "modified", "deleted", "renamed"]),
   diff: z.string().optional(),
-  oldPath: z.string().optional(), // for renames
+  oldPath: z.string().optional(),
 });
 
 export const PlannedCommitSchema = z.object({
@@ -13,9 +22,16 @@ export const PlannedCommitSchema = z.object({
   message: z.string(),
   description: z.string().optional(),
   files: z.array(FileChangeSchema),
+  fileHunks: z.array(z.object({
+    path: z.string(),
+    hunks: z.array(z.object({
+      start: z.number(),
+      end: z.number(),
+    })),
+  })).optional(),
   category: z.enum(["setup", "feature", "fix", "refactor", "docs", "test", "chore", "style"]),
   scheduledDate: z.date().optional(),
-  dependencies: z.array(z.string()).optional(), // IDs of commits this depends on
+  dependencies: z.array(z.string()).optional(),
 });
 
 export const CommitPlanSchema = z.object({
