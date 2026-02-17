@@ -7,6 +7,7 @@ import {
   getFileDiff,
   getFileContent,
   stageFiles,
+  stageFileHunks,
   unstageAll,
   createCommit,
   createBackupBranch,
@@ -20,7 +21,7 @@ import { distributeCommits } from "../lib/distribution";
 import { loadConfig, saveConfig } from "../lib/config";
 import { renderCommitList, renderPlanSummary, exportPlanAsJson } from "../lib/output";
 import { telemetry, createTimer } from "../lib/telemetry";
-import type { FileChange, PlannedCommit, CommitPlan } from "../types";
+import type { FileChange, PlannedCommit, CommitPlan, FileHunkSpec } from "../types";
 
 function formatDate(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -165,6 +166,10 @@ export async function handleBackfill(input: {
     files: group.files
       .map((filePath) => allFiles.find((f) => f.path === filePath))
       .filter((f): f is NonNullable<typeof f> => f !== undefined),
+    fileHunks: group.fileHunks.map((fh) => ({
+      path: fh.path,
+      hunks: fh.lineRanges.map((lr) => ({ start: lr.start, end: lr.end })),
+    })),
     category: group.category as PlannedCommit["category"],
   }));
 
@@ -438,13 +443,20 @@ export async function handleBackfill(input: {
     if (!commit) continue;
     spinner.message(`Commit ${i + 1}/${distributedCommits.length}: ${commit.message}`);
 
-    // Unstage any previously staged files before staging this commit's files
     await unstageAll(cwd);
 
-    const filePaths = commit.files.map((f) => f.path);
-    const stagedFiles = await stageFiles(filePaths, cwd);
+    let stagedCount = 0;
+    
+    if (commit.fileHunks && commit.fileHunks.length > 0) {
+      const result = await stageFileHunks(commit.fileHunks as FileHunkSpec[], diffs, cwd);
+      stagedCount = result.filesStaged.length;
+    } else {
+      const filePaths = commit.files.map((f) => f.path);
+      const stagedFiles = await stageFiles(filePaths, cwd);
+      stagedCount = stagedFiles.length;
+    }
 
-    if (stagedFiles.length === 0) {
+    if (stagedCount === 0) {
       skippedCommits.push(commit.message);
       continue;
     }
