@@ -87,6 +87,23 @@ export class UserCancelledError extends TaggedError("UserCancelledError")<{
 }
 
 /**
+ * Error when telemetry event persistence fails
+ */
+export class TelemetryPersistError extends TaggedError("TelemetryPersistError")<{
+  message: string;
+  cause?: unknown;
+}>() {}
+
+/**
+ * Error when telemetry flush fails
+ */
+export class TelemetryFlushError extends TaggedError("TelemetryFlushError")<{
+  message: string;
+  eventCount: number;
+  cause?: unknown;
+}>() {}
+
+/**
  * Union type of all application errors
  */
 export type AppError =
@@ -97,4 +114,6 @@ export type AppError =
   | ConfigError
   | NoChangesError
   | InvalidDateRangeError
-  | UserCancelledError;
+  | UserCancelledError
+  | TelemetryPersistError
+  | TelemetryFlushError;
