@@ -58,6 +58,8 @@ jobs:
 
       - name: Build CLI
         run: bun turbo build --filter=@atybdot/chronicle
+        env:
+          TELEMETRY_ENDPOINT: https://chronicle-telemetry.atybdot.workers.dev/
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
