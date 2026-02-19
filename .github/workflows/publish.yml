@@ -48,16 +48,16 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Type check
-        run: bun turbo typecheck --filter=cli
+        run: bun turbo typecheck --filter=@atybdot/chronicle
 
       - name: Lint
-        run: bun turbo lint --filter=cli
+        run: bun turbo lint --filter=@atybdot/chronicle
 
       - name: Run tests
-        run: bun turbo test --filter=cli
+        run: bun turbo test --filter=@atybdot/chronicle
 
       - name: Build CLI
-        run: bun turbo build --filter=cli
+        run: bun turbo build --filter=@atybdot/chronicle
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
