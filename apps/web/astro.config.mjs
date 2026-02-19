@@ -19,7 +19,9 @@ export default defineConfig({
       include: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime'],
     },
   },
-  fonts: [{ provider: fontProviders.google(), "cssVariable": "--font-geist-mono", name: "Geist Mono" }],
+  experimental: {
+    fonts: [{ provider: fontProviders.google(), cssVariable: "--font-geist-mono", name: "Geist Mono" }],
+  },
   integrations: [
     react({
       babel: {
