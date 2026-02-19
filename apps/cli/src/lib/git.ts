@@ -172,25 +172,13 @@ export async function stageFiles(files: string[], cwd?: string): Promise<string[
   const workdir = cwd ?? process.cwd();
   const gitRoot = await getGitRoot(workdir);
 
-  // Filter out paths that don't exist (check both files and directories)
-  const existingPaths: string[] = [];
-  for (const file of files) {
-    try {
-      const filePath = `${gitRoot}/${file}`;
-      // Check if path exists (file or directory)
-      await $`test -e ${filePath}`.quiet();
-      existingPaths.push(file);
-    } catch {
-      // Path doesn't exist, skip it
-    }
-  }
-
-  if (existingPaths.length > 0) {
+  if (files.length > 0) {
     // Run git add from the git root directory since paths are relative to it
-    await $`git add ${existingPaths}`.cwd(gitRoot);
+    // git add handles both existing files and deleted files (stages the deletion)
+    await $`git add -- ${files}`.cwd(gitRoot);
   }
 
-  return existingPaths;
+  return files;
 }
 
 /**
