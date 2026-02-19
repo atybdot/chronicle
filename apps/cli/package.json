@@ -1,6 +1,6 @@
 {
   "name": "@atybdot/chronicle",
-  "version": "0.1.1",
+  "version": "1.0.0",
   "description": "AI-powered CLI that transforms uncommitted changes into a realistic git commit history.",
   "main": "dist/index.js",
   "module": "dist/index.js",
