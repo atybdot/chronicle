@@ -49,6 +49,7 @@ describe("Output utilities", () => {
     expect(output).toContain("Commit Plan Summary");
     expect(output).toContain("Total commits:");
     expect(output).toContain("Total files:");
+    expect(output).toContain("1/15/2024 - 1/20/2024");
   });
 
   test("exportPlanAsJson produces valid JSON", () => {
