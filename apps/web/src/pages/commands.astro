@@ -45,13 +45,9 @@ const commands = [
 const configSubcommands = [
   { name: "init", desc: "Interactive setup wizard" },
   { name: "show", desc: "Show current configuration" },
-  { name: "set", desc: "Set a configuration value" },
-  { name: "get", desc: "Get a configuration value" },
   { name: "model", desc: "Change the LLM model" },
   { name: "provider", desc: "Change the LLM provider" },
-  { name: "prompt", desc: "Set custom AI instructions" },
-  { name: "clear-cache", desc: "Clear the AI response cache" },
-  { name: "cache-stats", desc: "Show cache statistics" },
+  { name: "prompt", desc: "Set or clear custom AI instructions" },
   { name: "telemetry", desc: "Manage telemetry settings" },
 ];
 ---
@@ -77,6 +73,10 @@ const configSubcommands = [
         theme="ayu-mirage"
         lang="bash"
       />
+      <p class="text-xs text-zinc-600">
+        Running <code class="text-zinc-400">chronicle</code> with no arguments opens
+        the interactive menu.
+      </p>
     </section>
 
     {
@@ -103,7 +103,9 @@ const configSubcommands = [
     <section class="space-y-3">
       <div>
         <h2 class="text-lg font-medium text-zinc-200">config</h2>
-        <p class="text-sm text-zinc-500">Configure chronicle settings</p>
+        <p class="text-sm text-zinc-500">
+          Actual config subcommands currently exposed by the CLI
+        </p>
       </div>
       <div class="p-4 rounded-lg bg-zinc-900">
         <ul class="text-sm space-y-1.5">
@@ -117,6 +119,21 @@ const configSubcommands = [
           }
         </ul>
       </div>
+    </section>
+    <section class="space-y-3">
+      <div>
+        <h2 class="text-lg font-medium text-zinc-200">usage example</h2>
+      </div>
+      <Code
+        code={`chronicle config init
+chronicle config provider
+chronicle config model
+chronicle config prompt --clear
+chronicle config telemetry --opt-out`}
+        class="px-4 py-3 text-sm **:bg-transparent! bg-zinc-900! rounded-lg"
+        theme="ayu-mirage"
+        lang="bash"
+      />
     </section>
   </div>
 </IndexLayout>
