@@ -13,22 +13,40 @@ const providers = [
   { name: "Google Gemini", key: "gemini" },
   { name: "OpenRouter", key: "openrouter" },
   { name: "Ollama", key: "ollama", hint: "Local, no API key" },
+  { name: "Cloudflare AI Gateway", key: "cloudflare", hint: "Account ID, Gateway ID, API token" },
+  { name: "OpenCode Zen", key: "opencode-zen" },
+  { name: "Groq", key: "groq" },
 ];
 
-const configOptions = [
-  { key: "llm.provider", desc: "LLM provider", default: "openai" },
-  { key: "llm.model", desc: "Model name", default: "provider default" },
-  { key: "llm.apiKey", desc: "API key", default: "—" },
-  { key: "llm.baseUrl", desc: "Custom endpoint", default: "—" },
-  { key: "llm.customPrompt", desc: "Custom AI instructions", default: "—" },
-  { key: "git.authorName", desc: "Git author name", default: "from git config" },
-  { key: "git.authorEmail", desc: "Git author email", default: "from git config" },
-  { key: "defaults.distribution", desc: "Commit distribution", default: "realistic" },
-  { key: "defaults.dryRun", desc: "Preview by default", default: "true" },
-  { key: "defaults.workHoursStart", desc: "Work hours start", default: "9" },
-  { key: "defaults.workHoursEnd", desc: "Work hours end", default: "18" },
-  { key: "defaults.excludeWeekends", desc: "Skip weekends", default: "false" },
+const configFields = [
+  { key: "llm.selected.provider", desc: "Currently active provider" },
+  { key: "llm.selected.model", desc: "Currently active model" },
+  { key: "llm.providers[]", desc: "Saved provider credentials and provider-specific settings" },
+  { key: "llm.customPrompt", desc: "Optional custom instructions for AI output" },
+  { key: "git.authorName / git.authorEmail", desc: "Stored git identity fallback" },
+  { key: "defaults.*", desc: "Backfill defaults like timeline and work hours" },
 ];
+
+const configExample = `{
+  "llm": {
+    "selected": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-20250514"
+    },
+    "providers": [
+      {
+        "name": "anthropic",
+        "API_TOKEN": "***",
+        "model": "claude-sonnet-4-20250514"
+      },
+      {
+        "name": "ollama",
+        "baseUrl": "http://localhost:11434",
+        "model": "llama3.2"
+      }
+    ]
+  }
+}`;
 ---
 
 <IndexLayout
@@ -78,40 +96,44 @@ const configOptions = [
     </section>
 
     <section class="space-y-3">
-      <h2 class="text-lg font-medium">API Key</h2>
+      <h2 class="text-lg font-medium">Environment Variables</h2>
       <div class="space-y-2">
         <Code
-          code="export CHRONICLE_AI_KEY=your-api-key"
+          code={`# Standard hosted providers
+export CHRONICLE_AI_KEY=your-api-key
+
+# Cloudflare AI Gateway
+export CF_ACCOUNT_ID=your-account-id
+export CF_GATEWAY_ID=your-gateway-id
+export CF_API_TOKEN=your-api-token`}
           class="px-4 py-2.5 text-sm **:bg-transparent! bg-zinc-900! rounded-lg"
           theme="ayu-mirage"
           lang="bash"
         />
         <p class="text-xs text-zinc-600">
-          Or enter during <code class="text-zinc-400">config init</code>. Stored locally at <code class="text-zinc-400">~/.config/chronicle/config.json</code>
+          Ollama only needs a base URL. You can also enter credentials during <code class="text-zinc-400">config init</code>. Config is stored at <code class="text-zinc-400">~/.config/chronicle/config.json</code>.
         </p>
       </div>
     </section>
 
     <section class="space-y-3">
-      <h2 class="text-lg font-medium">Options</h2>
+      <h2 class="text-lg font-medium">Stored Fields</h2>
       <div class="p-4 rounded-lg bg-zinc-900 overflow-x-auto">
         <table class="text-sm w-full">
           <thead>
             <tr class="text-zinc-400 text-left">
-              <th class="pb-2 pr-4 font-medium">Key</th>
+              <th class="pb-2 pr-4 font-medium">Field</th>
               <th class="pb-2 pr-4 font-medium">Description</th>
-              <th class="pb-2 font-medium">Default</th>
             </tr>
           </thead>
           <tbody class="text-zinc-500">
             {
-              configOptions.map((opt) => (
+              configFields.map((opt) => (
                 <tr>
                   <td class="py-1 pr-4">
                     <code class="text-cyan-400">{opt.key}</code>
                   </td>
                   <td class="py-1 pr-4">{opt.desc}</td>
-                  <td class="py-1 text-zinc-600">{opt.default}</td>
                 </tr>
               ))
             }
@@ -121,16 +143,29 @@ const configOptions = [
     </section>
 
     <section class="space-y-3">
+      <h2 class="text-lg font-medium">Config Shape</h2>
+      <Code
+        code={configExample}
+        class="px-4 py-3 text-sm **:bg-transparent! bg-zinc-900! rounded-lg"
+        theme="ayu-mirage"
+        lang="json"
+      />
+    </section>
+
+    <section class="space-y-3">
       <h2 class="text-lg font-medium">Examples</h2>
       <div class="space-y-2">
         <Code
-          code={`# Set a value
-chronicle config set llm.model gpt-4o
+          code={`# Run full setup
+chronicle config init
 
-# Get a value
-chronicle config get llm.provider
+# Switch providers without overwriting saved credentials
+chronicle config provider
 
-# Show all config
+# Change the model for the selected provider
+chronicle config model
+
+# Show current config
 chronicle config show`}
           class="px-4 py-3 text-sm **:bg-transparent! bg-zinc-900! rounded-lg"
           theme="ayu-mirage"
