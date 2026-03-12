@@ -274,18 +274,16 @@ function buildFallbackGroupDescription(path: string, selectedHunkIds: Set<string
   return `Deterministic fallback group for changes left unassigned by AI in ${path}`;
 }
 
-function normalizeAnalysisGroups(
+function normalizeAssignedAnalysisGroups(
   apiGroups: ModelAnalysisGroup[],
-  allHunks: HunkDescriptor[],
   selectedHunkIds: Set<string>,
 ): {
   groups: NormalizedHunkGroup[];
-  fallbackGroupCount: number;
-  fallbackHunkCount: number;
+  assignedHunkIds: string[];
 } {
   const assigned = new Set<string>();
 
-  const normalizedGroups: NormalizedHunkGroup[] = apiGroups
+  const groups = apiGroups
     .sort((a, b) => a.order - b.order)
     .map((group) => {
       const validHunkIds = group.hunkIds.filter(
@@ -313,9 +311,7 @@ function normalizeAnalysisGroups(
     { hunkIds: string[]; category: AnalysisGroup["category"] }
   >();
 
-  for (const hunk of allHunks) {
-    if (assigned.has(hunk.id)) continue;
-
+  for (const hunk of unassignedHunks) {
     const existing = fallbackGroups.get(hunk.path);
     if (existing) {
       existing.hunkIds.push(hunk.id);
@@ -1436,115 +1432,65 @@ export async function analyzeChangesSafe(
   const config = await loadConfig();
   const provider = getSelectedProvider(config);
   const modelId = getSelectedModel(config) ?? "";
-  const selectionPlan = buildAdaptiveReductionSequence(
-    Math.min(allHunks.length, ANALYSIS_INITIAL_HUNK_LIMIT),
-    Math.min(allHunks.length, ANALYSIS_MIN_HUNK_LIMIT),
-  );
-
-  let lastError: unknown;
-
-  for (const hunkCount of selectionPlan) {
-    const selectedHunks = byPriority.slice(0, hunkCount);
-    const context = renderHunkContext(selectedHunks, "compact", allHunks.length - selectedHunks.length);
-    const basePrompt = buildAnalysisBasePrompt({
-      context,
-      analyzableFileCount: analyzableFiles.length,
+  try {
+    const passResult = await analyzeHunksInBoundedPasses({
+      model,
+      analyzableFiles,
       assetFiles,
-      totalHunks: allHunks.length,
-      selectedHunks,
-    });
-    const prompt = await buildPrompt(basePrompt);
-
-    if (prompt.length > ANALYSIS_CONTEXT_CHAR_BUDGET && hunkCount !== selectionPlan.at(-1)) {
-      continue;
-    }
-
-    try {
-      const apiResult = await requestCachedStructuredObject({
-        model,
-        schema: z.object({
-          suggestedCommits: z.number(),
-          suggestedDays: z.number(),
-          reasoning: z.string(),
-          groups: z.array(
-            z.object({
-              name: z.string(),
-              description: z.string(),
-              hunkIds: z.array(z.string()),
-              category: z.enum([
-                "setup",
-                "feature",
-                "fix",
-                "refactor",
-                "docs",
-                "test",
-                "chore",
-                "style",
-              ]),
-              order: z.number(),
-            }),
-          ),
-        }),
-        prompt,
-        cacheKey: generateCacheKey({ prompt, hunkCount: selectedHunks.length }),
-        ttl: 24 * 60 * 60 * 1000,
-        requestType: "analyze",
-        provider,
-        modelId,
-      });
-
-      const selectedHunkIds = new Set(selectedHunks.map((hunk) => hunk.id));
-      const normalized = normalizeAnalysisGroups(
-        apiResult.object.groups.map((group) => ({
-          ...group,
-          category: group.category as AnalysisGroup["category"],
-        })),
-        allHunks,
-        selectedHunkIds,
-      );
-
-      const groups = splitAnalysisGroupsByFileLimit(
-        buildAnalysisGroupsFromHunkGroups(normalized.groups, allHunks),
-      );
-      const assetAssignment = attachAssetsToGroups(groups, assetFiles);
-      const reasoningBase =
-        normalized.fallbackGroupCount > 0
-          ? `${apiResult.object.reasoning}\n\nChronicle added ${normalized.fallbackGroupCount} deterministic fallback group${normalized.fallbackGroupCount === 1 ? "" : "s"} to include ${normalized.fallbackHunkCount} remaining hunk${normalized.fallbackHunkCount === 1 ? "" : "s"}.`
-          : apiResult.object.reasoning;
-      const reasoning =
-        assetFiles.length > 0
-          ? `${reasoningBase}\n\nChronicle excluded ${assetFiles.length} non-analyzable asset file${assetFiles.length === 1 ? "" : "s"} from AI context, attached ${assetAssignment.summary.attachedAssetCount} to related commit group${assetAssignment.summary.attachedAssetCount === 1 ? "" : "s"}, and created ${assetAssignment.summary.fallbackAssetCount} deterministic asset fallback commit${assetAssignment.summary.fallbackAssetCount === 1 ? "" : "s"}.`
-          : reasoningBase;
-
-      return Result.ok({
-        suggestedCommits: assetAssignment.groups.length,
-        suggestedDays: apiResult.object.suggestedDays,
-        reasoning,
-        groups: assetAssignment.groups,
-      });
-    } catch (error) {
-      lastError = error;
-      if (isOversizedRequestError(error) && hunkCount !== selectionPlan.at(-1)) {
-        continue;
-      }
-
-      return Result.err(
-        new AIApiError({
-          provider,
-          message: error instanceof Error ? error.message : String(error),
-          cause: error,
-        }),
-      );
-    }
-  }
-
-  return Result.err(
-    new AIApiError({
+      allHunks: byPriority,
       provider,
-      message: lastError instanceof Error ? lastError.message : String(lastError),
-      cause: lastError,
-    }),
-  );
+      modelId,
+    });
+
+    const assignedIds = new Set(passResult.assignedHunkIds);
+    const normalized = appendDeterministicFallbackGroups(
+      passResult.groups,
+      byPriority.filter((hunk) => !assignedIds.has(hunk.id)),
+      new Set(passResult.assignedHunkIds),
+    );
+
+    const groups = splitAnalysisGroupsByFileLimit(
+      buildAnalysisGroupsFromHunkGroups(normalized.groups, byPriority),
+    );
+    const assetAssignment = attachAssetsToGroups(groups, assetFiles);
+
+    const reasoningParts = [...passResult.reasoning];
+    if (normalized.fallbackGroupCount > 0) {
+      reasoningParts.push(
+        `Chronicle added ${normalized.fallbackGroupCount} deterministic fallback group${normalized.fallbackGroupCount === 1 ? "" : "s"} to include ${normalized.fallbackHunkCount} remaining hunk${normalized.fallbackHunkCount === 1 ? "" : "s"}.`,
+      );
+    }
+    if (passResult.attempts > 1) {
+      reasoningParts.push(
+        `Chronicle used ${passResult.attempts} bounded analysis pass${passResult.attempts === 1 ? "" : "es"} to assign remaining hunks before falling back deterministically.`,
+      );
+    }
+    if (passResult.contextLimited) {
+      reasoningParts.push(
+        "Chronicle had to reduce AI context in at least one pass, then continued analyzing the remaining hunks in later passes.",
+      );
+    }
+    if (assetFiles.length > 0) {
+      reasoningParts.push(
+        `Chronicle excluded ${assetFiles.length} non-analyzable asset file${assetFiles.length === 1 ? "" : "s"} from AI context, attached ${assetAssignment.summary.attachedAssetCount} to related commit group${assetAssignment.summary.attachedAssetCount === 1 ? "" : "s"}, and created ${assetAssignment.summary.fallbackAssetCount} deterministic asset fallback commit${assetAssignment.summary.fallbackAssetCount === 1 ? "" : "s"}.`,
+      );
+    }
+
+    return Result.ok({
+      suggestedCommits: assetAssignment.groups.length,
+      suggestedDays: Math.max(1, ...passResult.suggestedDays),
+      reasoning: reasoningParts.join("\n\n"),
+      groups: assetAssignment.groups,
+    });
+  } catch (error) {
+    return Result.err(
+      new AIApiError({
+        provider,
+        message: error instanceof Error ? error.message : String(error),
+        cause: error,
+      }),
+    );
+  }
 }
 
 /**
