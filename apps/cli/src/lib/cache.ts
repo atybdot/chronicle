@@ -140,7 +140,8 @@ export async function getCacheStats(namespace?: string): Promise<{
   oldestEntry: Date | null;
   newestEntry: Date | null;
 }> {
-  const targetDir = namespace ? join(CACHE_DIR, namespace) : CACHE_DIR;
+  const cacheDir = getCacheDir();
+  const targetDir = namespace ? join(cacheDir, namespace) : cacheDir;
   let totalEntries = 0;
   let totalSize = 0;
   let oldestTimestamp = Infinity;
