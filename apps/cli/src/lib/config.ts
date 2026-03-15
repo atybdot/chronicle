@@ -1,18 +1,28 @@
 import { homedir } from "os";
 import { join } from "path";
 import { Result } from "better-result";
-import type { Config } from "../types";
+import type { Config, LLMProvider, LLMProviderConfig } from "../types";
 import { ConfigError } from "./errors";
+import { clearCache, CacheNamespaces } from "./cache";
 
-const CONFIG_DIR = join(homedir(), ".config", "chronicle");
+type ConfigUpdate = {
+  [K in keyof Config]?: Config[K] extends Array<infer U>
+    ? U[]
+    : Config[K] extends Record<string, unknown>
+      ? { [P in keyof Config[K]]?: Config[K][P] }
+      : Config[K];
+};
+
+const CONFIG_DIR = process.env.CHRONICLE_CONFIG_DIR ?? join(homedir(), ".config", "chronicle");
 const CONFIG_FILE = join(CONFIG_DIR, "config.json");
 
 const DEFAULT_CONFIG: Config = {
   llm: {
-    provider: "openai",
-    model: undefined,
-    apiKey: undefined,
-    baseUrl: undefined,
+    selected: {
+      provider: "openrouter",
+      model: undefined,
+    },
+    providers: [],
     customPrompt: undefined,
   },
   git: {
@@ -47,7 +57,11 @@ export async function loadConfig(): Promise<Config> {
     const file = Bun.file(CONFIG_FILE);
     if (await file.exists()) {
       const content = await file.json();
-      return deepMerge(DEFAULT_CONFIG, content);
+      const normalizedConfig = normalizeConfig(deepMerge(DEFAULT_CONFIG, content as Partial<Config>));
+      if (hasLegacyLlmConfig(content)) {
+        await persistMigratedConfig(normalizedConfig);
+      }
+      return normalizedConfig;
     }
   } catch {
     // Config doesn't exist or is invalid
@@ -64,7 +78,11 @@ export async function loadConfigSafe(): Promise<Result<Config, ConfigError>> {
       const file = Bun.file(CONFIG_FILE);
       if (await file.exists()) {
         const content = await file.json();
-        return deepMerge(DEFAULT_CONFIG, content);
+        const normalizedConfig = normalizeConfig(deepMerge(DEFAULT_CONFIG, content as Partial<Config>));
+        if (hasLegacyLlmConfig(content)) {
+          await persistMigratedConfig(normalizedConfig);
+        }
+        return normalizedConfig;
       }
       return DEFAULT_CONFIG;
     },
@@ -79,23 +97,31 @@ export async function loadConfigSafe(): Promise<Result<Config, ConfigError>> {
 /**
  * Save configuration to file
  */
-export async function saveConfig(config: Partial<Config>): Promise<void> {
+export async function saveConfig(config: ConfigUpdate): Promise<void> {
   await ensureConfigDir();
   const currentConfig = await loadConfig();
-  const newConfig = deepMerge(currentConfig, config);
+  const newConfig = normalizeConfig(deepMerge(currentConfig, config));
   await Bun.write(CONFIG_FILE, JSON.stringify(newConfig, null, 2));
+
+  if (didSelectedLlmChange(currentConfig, newConfig)) {
+    await clearCache(CacheNamespaces.AI_RESPONSES);
+  }
 }
 
 /**
  * Save configuration with Result type
  */
-export async function saveConfigSafe(config: Partial<Config>): Promise<Result<void, ConfigError>> {
+export async function saveConfigSafe(config: ConfigUpdate): Promise<Result<void, ConfigError>> {
   return Result.tryPromise({
     try: async () => {
       await ensureConfigDir();
       const currentConfig = await loadConfig();
-      const newConfig = deepMerge(currentConfig, config);
+      const newConfig = normalizeConfig(deepMerge(currentConfig, config));
       await Bun.write(CONFIG_FILE, JSON.stringify(newConfig, null, 2));
+
+      if (didSelectedLlmChange(currentConfig, newConfig)) {
+        await clearCache(CacheNamespaces.AI_RESPONSES);
+      }
     },
     catch: (e) =>
       new ConfigError({
@@ -133,23 +159,39 @@ export const ENV_VAR_NAME = "CHRONICLE_AI_KEY";
 /**
  * Get API key for LLM provider (checks env var first, then config)
  */
-export async function getApiKey(): Promise<string | undefined> {
-  // Check unified environment variable first
-  if (process.env[ENV_VAR_NAME]) {
-    return process.env[ENV_VAR_NAME];
-  }
-
-  // Fall back to config
+export async function getApiKey(provider?: LLMProvider): Promise<string | undefined> {
   const config = await loadConfig();
-  return config.llm.apiKey;
+  const providerConfig = provider
+    ? findProviderConfig(config, provider)
+    : getSelectedProviderConfig(config);
+  return providerConfig?.API_TOKEN ?? process.env[ENV_VAR_NAME];
 }
 
 /**
  * Check if API key is configured (either in env or config)
  */
-export async function hasApiKey(): Promise<boolean> {
-  const key = await getApiKey();
+export async function hasApiKey(provider?: LLMProvider): Promise<boolean> {
+  const key = await getApiKey(provider);
   return !!key;
+}
+
+export async function getCloudflareConfig(): Promise<{
+  accountId?: string;
+  gatewayId?: string;
+  apiToken?: string;
+}> {
+  const config = await loadConfig();
+  const providerConfig = findProviderConfig(config, "cloudflare");
+  return {
+    accountId: process.env.CF_ACCOUNT_ID ?? providerConfig?.accountId,
+    gatewayId: process.env.CF_GATEWAY_ID ?? providerConfig?.gatewayId,
+    apiToken: process.env.CF_API_TOKEN ?? providerConfig?.API_TOKEN,
+  };
+}
+
+export async function hasCloudflareConfig(): Promise<boolean> {
+  const { accountId, gatewayId, apiToken } = await getCloudflareConfig();
+  return !!(accountId && gatewayId && apiToken);
 }
 
 /**
@@ -160,26 +202,142 @@ export async function getCustomPrompt(): Promise<string | undefined> {
   return config.llm.customPrompt;
 }
 
+export function findProviderConfig(config: Config, provider: LLMProvider): LLMProviderConfig | undefined {
+  return config.llm.providers.find((entry) => entry.name === provider);
+}
+
+export function getSelectedProvider(config: Config): LLMProvider {
+  return config.llm.selected.provider;
+}
+
+export function getSelectedModel(config: Config): string | undefined {
+  return config.llm.selected.model ?? getSelectedProviderConfig(config)?.model;
+}
+
+export function getSelectedProviderConfig(config: Config): LLMProviderConfig | undefined {
+  return findProviderConfig(config, getSelectedProvider(config));
+}
+
+export function upsertProviderConfig(
+  providers: LLMProviderConfig[],
+  providerConfig: LLMProviderConfig,
+): LLMProviderConfig[] {
+  const existingIndex = providers.findIndex((entry) => entry.name === providerConfig.name);
+  if (existingIndex === -1) {
+    return [...providers, providerConfig];
+  }
+
+  return providers.map((entry, index) => (index === existingIndex ? { ...entry, ...providerConfig } : entry));
+}
+
+function didSelectedLlmChange(previousConfig: Config, nextConfig: Config): boolean {
+  return (
+    getSelectedProvider(previousConfig) !== getSelectedProvider(nextConfig) ||
+    getSelectedModel(previousConfig) !== getSelectedModel(nextConfig)
+  );
+}
+
 /**
  * Deep merge two objects
  */
-function deepMerge<T extends Record<string, unknown>>(target: T, source: Partial<T>): T {
-  const result = { ...target };
+function deepMerge<T extends Record<string, unknown>>(target: T, source: unknown): T {
+  const result: Record<string, unknown> = { ...target };
+  const sourceObject = (source ?? {}) as Record<string, unknown>;
 
-  for (const key in source) {
-    if (source[key] !== undefined) {
-      if (typeof source[key] === "object" && source[key] !== null && !Array.isArray(source[key])) {
+  for (const key in sourceObject) {
+    if (sourceObject[key] !== undefined) {
+      if (
+        typeof sourceObject[key] === "object" &&
+        sourceObject[key] !== null &&
+        !Array.isArray(sourceObject[key])
+      ) {
         result[key] = deepMerge(
           (target[key] ?? {}) as Record<string, unknown>,
-          source[key] as Record<string, unknown>,
-        ) as T[Extract<keyof T, string>];
+          sourceObject[key] as Record<string, unknown>,
+        );
       } else {
-        result[key] = source[key] as T[Extract<keyof T, string>];
+        result[key] = sourceObject[key];
       }
     }
   }
 
-  return result;
+  return result as T;
+}
+
+function normalizeConfig(config: Config): Config {
+  const legacy = config as Config & {
+    llm?: Config["llm"] & {
+      provider?: LLMProvider;
+      model?: string;
+      apiKey?: string;
+      baseUrl?: string;
+      cfAccountId?: string;
+      cfGatewayId?: string;
+      cfApiToken?: string;
+    };
+  };
+
+  const legacyProvider = legacy.llm?.provider;
+  const legacyModel = legacy.llm?.model;
+
+  const providers = Array.isArray(config.llm.providers) ? [...config.llm.providers] : [];
+
+  if (legacyProvider) {
+    providers.splice(
+      0,
+      providers.length,
+      ...upsertProviderConfig(providers, {
+        name: legacyProvider,
+        API_TOKEN: legacyProvider === "cloudflare" ? legacy.llm?.cfApiToken : legacy.llm?.apiKey,
+        model: legacyModel,
+        baseUrl: legacy.llm?.baseUrl,
+        accountId: legacy.llm?.cfAccountId,
+        gatewayId: legacy.llm?.cfGatewayId,
+      }),
+    );
+  }
+
+  const selectedProvider = config.llm.selected?.provider ?? legacyProvider ?? "openrouter";
+  const selectedProviderConfig = providers.find((entry) => entry.name === selectedProvider);
+  const selectedModel = config.llm.selected?.model ?? legacyModel ?? selectedProviderConfig?.model;
+
+  return {
+    ...config,
+    llm: {
+      selected: {
+        provider: selectedProvider,
+        model: selectedModel,
+      },
+      providers,
+      customPrompt: config.llm.customPrompt,
+    },
+  };
+}
+
+function hasLegacyLlmConfig(rawConfig: unknown): boolean {
+  if (!rawConfig || typeof rawConfig !== "object") {
+    return false;
+  }
+
+  const llm = (rawConfig as { llm?: Record<string, unknown> }).llm;
+  if (!llm || typeof llm !== "object") {
+    return false;
+  }
+
+  return (
+    "provider" in llm ||
+    "model" in llm ||
+    "apiKey" in llm ||
+    "baseUrl" in llm ||
+    "cfAccountId" in llm ||
+    "cfGatewayId" in llm ||
+    "cfApiToken" in llm
+  );
+}
+
+async function persistMigratedConfig(config: Config): Promise<void> {
+  await ensureConfigDir();
+  await Bun.write(CONFIG_FILE, JSON.stringify(config, null, 2));
 }
 
 /**
