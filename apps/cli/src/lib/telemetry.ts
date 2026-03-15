@@ -9,7 +9,7 @@ import { TelemetryPersistError, TelemetryFlushError } from "./errors";
 // Configuration
 // ============================================================================
 
-const TELEMETRY_ENDPOINT = process.env.TELEMETRY_ENDPOINT || "https://chronicle-telemetry.atyb.workers.dev";
+const TELEMETRY_ENDPOINT = process.env.TELEMETRY_ENDPOINT || "https://chronicle-telemetry.atybdot.workers.dev";
 const TELEMETRY_DIR = join(homedir(), ".config", "chronicle");
 const TELEMETRY_FILE = join(TELEMETRY_DIR, "telemetry.json");
 const EVENTS_FILE = join(TELEMETRY_DIR, "telemetry-events.jsonl");
@@ -129,8 +129,8 @@ class TelemetryClient {
 
     try {
       this.state = await this.loadState();
-      await this.flushPendingEvents();
       this.initialized = true;
+      this.flushPendingEvents().catch(() => {});
     } catch {
       this.initialized = true;
     }
