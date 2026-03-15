@@ -84,8 +84,9 @@ function distributeRealistic(
   // Calculate commits per day with variance
   // Some days have more commits (coding sessions), some have fewer
   const totalCommits = commits.length;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _avgCommitsPerDay = totalCommits / availableDays.length;
+  if (totalCommits === 0) {
+    return [];
+  }
 
   // Generate day weights (some days are more productive)
   const dayWeights = availableDays.map((day) => {
@@ -101,25 +102,27 @@ function distributeRealistic(
   const totalWeight = dayWeights.reduce((a, b) => a + b, 0);
   const normalizedWeights = dayWeights.map((w) => w / totalWeight);
 
-  // Assign commits to days based on weights
-  const commitsPerDay: number[] = Array.from({ length: availableDays.length }, () => 0);
-  let assignedCommits = 0;
+  const activeDayCount = Math.min(availableDays.length, totalCommits);
+  const activeDayIndices = selectSpreadDayIndices(availableDays, normalizedWeights, activeDayCount);
 
-  for (let i = 0; i < availableDays.length && assignedCommits < totalCommits; i++) {
-    const weight = normalizedWeights[i];
-    if (weight === undefined) continue;
-    const expectedCommits = Math.round(weight * totalCommits);
-    const actualCommits = Math.min(expectedCommits, totalCommits - assignedCommits);
-    commitsPerDay[i] = actualCommits;
-    assignedCommits += actualCommits;
+  // Assign commits to days based on weights, but ensure the plan spans the full range.
+  const commitsPerDay: number[] = Array.from({ length: availableDays.length }, () => 0);
+  for (const dayIndex of activeDayIndices) {
+    commitsPerDay[dayIndex] = 1;
   }
 
-  // Distribute remaining commits
+  let assignedCommits = activeDayCount;
+
+  // Distribute remaining commits across the already-active days.
   while (assignedCommits < totalCommits) {
-    const randomDay = Math.floor(Math.random() * availableDays.length);
-    const current = commitsPerDay[randomDay];
+    const weightedActiveDays = activeDayIndices.map((dayIndex) => ({
+      dayIndex,
+      weight: normalizedWeights[dayIndex] ?? 1 / activeDayIndices.length,
+    }));
+    const selectedDay = pickWeightedDayIndex(weightedActiveDays);
+    const current = commitsPerDay[selectedDay];
     if (current !== undefined) {
-      commitsPerDay[randomDay] = current + 1;
+      commitsPerDay[selectedDay] = current + 1;
     }
     assignedCommits++;
   }
@@ -150,6 +153,84 @@ function distributeRealistic(
   }
 
   return result;
+}
+
+function selectSpreadDayIndices(
+  days: Date[],
+  weights: number[],
+  selectedDays: number,
+): number[] {
+  const totalDays = days.length;
+
+  if (selectedDays <= 0 || totalDays <= 0) {
+    return [];
+  }
+
+  if (selectedDays >= totalDays) {
+    return Array.from({ length: totalDays }, (_, index) => index);
+  }
+
+  if (selectedDays === 1) {
+    return [pickSegmentDayIndex(days, weights, 0, totalDays - 1, [])];
+  }
+
+  const indices: number[] = [];
+  for (let i = 0; i < selectedDays; i++) {
+    const start = Math.floor((i * totalDays) / selectedDays);
+    const end = Math.max(start, Math.floor(((i + 1) * totalDays) / selectedDays) - 1);
+    indices.push(pickSegmentDayIndex(days, weights, start, end, indices));
+  }
+
+  return indices.sort((a, b) => a - b);
+}
+
+function pickSegmentDayIndex(
+  days: Date[],
+  weights: number[],
+  start: number,
+  end: number,
+  selectedIndices: number[],
+): number {
+  const weekdayUsage = new Map<number, number>();
+  for (const index of selectedIndices) {
+    const day = days[index];
+    if (!day) continue;
+    weekdayUsage.set(day.getDay(), (weekdayUsage.get(day.getDay()) ?? 0) + 1);
+  }
+
+  const center = (start + end) / 2;
+  let bestIndex = start;
+  let bestScore = Number.NEGATIVE_INFINITY;
+
+  for (let index = start; index <= end; index++) {
+    const day = days[index];
+    if (!day) continue;
+
+    const weekdayPenalty = weekdayUsage.get(day.getDay()) ?? 0;
+    const distancePenalty = Math.abs(index - center) * 0.05;
+    const score = (weights[index] ?? 0) - weekdayPenalty - distancePenalty;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestIndex = index;
+    }
+  }
+
+  return bestIndex;
+}
+
+function pickWeightedDayIndex(days: Array<{ dayIndex: number; weight: number }>): number {
+  const totalWeight = days.reduce((sum, day) => sum + day.weight, 0);
+  let threshold = Math.random() * totalWeight;
+
+  for (const day of days) {
+    threshold -= day.weight;
+    if (threshold <= 0) {
+      return day.dayIndex;
+    }
+  }
+
+  return days[days.length - 1]?.dayIndex ?? 0;
 }
 
 /**
