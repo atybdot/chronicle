@@ -88,6 +88,65 @@ export const PROVIDER_CONFIG = {
       "Visit https://ollama.com for installation instructions",
     ],
   },
+  cloudflare: {
+    name: "Cloudflare AI Gateway",
+    defaultModel: "openai/gpt-4o-mini",
+    recommendedModels: [
+      "openai/gpt-4o-mini",
+      "openai/gpt-4o",
+      "anthropic/claude-3-5-sonnet",
+      "anthropic/claude-sonnet-4",
+      "workers-ai/@cf/meta/llama-3-8b-instruct",
+      "gemini/gemini-1.5-pro",
+      "groq/llama-3-8b-instruct",
+    ],
+    modelsEndpoint: null,
+    apiKeyUrl: "https://dash.cloudflare.com/?to=/:account/ai/gateway",
+    apiKeyInstructions: [
+      "1. Go to Cloudflare Dashboard -> AI -> AI Gateway",
+      "2. Create or note your Gateway ID",
+      "3. Go to My Profile -> API Tokens -> Create Token",
+      "4. Select 'AI Gateway' template or add permissions",
+    ],
+  },
+  "opencode-zen": {
+    name: "OpenCode Zen",
+    defaultModel: "big-pickle",
+    recommendedModels: [
+      "big-pickle",
+      "gpt-5.4",
+      "gpt-5.3-codex",
+      "gpt-5.1-codex-mini",
+      "claude-sonnet-4-6",
+      "gemini-3-flash",
+      "glm-5",
+      "minimax-m2.5",
+      "kimi-k2.5",
+      "nemotron-3-super-free",
+    ],
+    modelsEndpoint: "https://opencode.ai/zen/v1/models",
+    apiKeyUrl: "https://opencode.ai/auth",
+    apiKeyInstructions: [
+      "1. Go to opencode.ai/auth",
+      "2. Sign in and add billing ($20 minimum)",
+      "3. Copy your API key from the dashboard",
+    ],
+  },
+  groq: {
+    name: "Groq",
+    defaultModel: "openai/gpt-oss-20b",
+    recommendedModels: [
+      "openai/gpt-oss-20b",
+      "openai/gpt-oss-120b",
+    ],
+    modelsEndpoint: "https://api.groq.com/openai/v1/models",
+    apiKeyUrl: "https://console.groq.com/keys",
+    apiKeyInstructions: [
+      "Go to Groq Console -> API Keys",
+      "Click 'Create API Key'",
+      "Give it a name (e.g., 'chronicle') and copy the key",
+    ],
+  },
 } as const;
 
 export type ProviderKey = keyof typeof PROVIDER_CONFIG;
@@ -124,6 +183,39 @@ async function fetchOpenAIModels(apiKey: string): Promise<ModelInfo[]> {
     }))
     .sort((a: ModelInfo, b: ModelInfo) => {
       // Recommended first, then alphabetically
+      if (a.isRecommended && !b.isRecommended) return -1;
+      if (!a.isRecommended && b.isRecommended) return 1;
+      return a.id.localeCompare(b.id);
+    });
+}
+
+async function fetchGroqModels(apiKey: string): Promise<ModelInfo[]> {
+  const response = await fetch("https://api.groq.com/openai/v1/models", {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Groq API error: ${response.status}`);
+  }
+
+  const data = (await response.json()) as {
+    data: Array<{
+      id: string;
+      owned_by?: string;
+      active?: boolean;
+      deprecated?: boolean;
+    }>;
+  };
+  const recommended = PROVIDER_CONFIG.groq.recommendedModels as readonly string[];
+
+  return data.data
+    .filter((m) => m.active !== false && !m.deprecated)
+    .map((m) => ({
+      id: m.id,
+      name: m.id,
+      isRecommended: recommended.includes(m.id),
+    }))
+    .sort((a: ModelInfo, b: ModelInfo) => {
       if (a.isRecommended && !b.isRecommended) return -1;
       if (!a.isRecommended && b.isRecommended) return 1;
       return a.id.localeCompare(b.id);
@@ -276,6 +368,41 @@ function getAnthropicModels(): ModelInfo[] {
   }));
 }
 
+async function fetchOpenCodeZenModels(apiKey: string): Promise<ModelInfo[]> {
+  const response = await fetch("https://opencode.ai/zen/v1/models", {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+
+  if (!response.ok) {
+    throw new Error(`OpenCode Zen API error: ${response.status}`);
+  }
+
+  const data = (await response.json()) as {
+    data: Array<{
+      id: string;
+      display_name?: string;
+      owned_by?: string;
+      active?: boolean;
+      deprecated?: boolean;
+      deprecation_date?: string | null;
+    }>;
+  };
+  const recommended = PROVIDER_CONFIG["opencode-zen"].recommendedModels as readonly string[];
+
+  return data.data
+    .filter((m) => m.active !== false && !m.deprecated && !m.deprecation_date)
+    .map((m) => ({
+      id: m.id,
+      name: m.display_name || m.id,
+      isRecommended: recommended.includes(m.id),
+    }))
+    .sort((a: ModelInfo, b: ModelInfo) => {
+      if (a.isRecommended && !b.isRecommended) return -1;
+      if (!a.isRecommended && b.isRecommended) return 1;
+      return a.id.localeCompare(b.id);
+    });
+}
+
 /**
  * Fetch models for a given provider with caching
  */
@@ -337,6 +464,18 @@ export async function fetchModels(
           models = await fetchOpenRouterModels(apiKey);
           break;
 
+        case "groq":
+          if (!apiKey) {
+            models = PROVIDER_CONFIG.groq.recommendedModels.map((id) => ({
+              id,
+              name: id,
+              isRecommended: true,
+            }));
+          } else {
+            models = await fetchGroqModels(apiKey);
+          }
+          break;
+
         case "ollama":
           try {
             models = await fetchOllamaModels(baseUrl);
@@ -347,6 +486,27 @@ export async function fetchModels(
               name: id,
               isRecommended: true,
             }));
+          }
+          break;
+
+        case "cloudflare":
+          // Cloudflare AI Gateway - return recommended models (dynamic list not easily fetchable)
+          models = PROVIDER_CONFIG.cloudflare.recommendedModels.map((id) => ({
+            id,
+            name: id,
+            isRecommended: true,
+          }));
+          break;
+
+        case "opencode-zen":
+          if (!apiKey) {
+            models = PROVIDER_CONFIG["opencode-zen"].recommendedModels.map((id) => ({
+              id,
+              name: id,
+              isRecommended: true,
+            }));
+          } else {
+            models = await fetchOpenCodeZenModels(apiKey);
           }
           break;
 
