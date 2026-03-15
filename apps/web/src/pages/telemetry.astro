@@ -8,17 +8,17 @@ const pageDescription = "What chronicle collects, why, and how to opt-out.";
 const pageKeywords = "chronicle telemetry, privacy, opt-out, anonymous data";
 
 const collected = [
-  "Command names & duration",
-  "Commit/file counts",
-  "AI provider & latency",
-  "CLI version & OS type",
+  "Command names, command success/failure, and duration",
+  "Commit and file counts for analyze/backfill events",
+  "Configured AI provider, model category, request type, cache hit, and latency",
+  "CLI version, OS type, and basic setup/config event metadata",
 ];
 
 const notCollected = [
-  "Source code or file contents",
-  "Commit messages or git history",
-  "File names, paths, or repo URLs",
-  "API keys, credentials, or PII",
+  "Source code, diffs, or file contents",
+  "Commit messages, file paths, or repository URLs",
+  "API keys, credentials, or access tokens",
+  "Personal data sent through your repo or prompts",
 ];
 ---
 
@@ -34,7 +34,7 @@ const notCollected = [
     <section>
       <h1 class="text-3xl font-semibold tracking-tighter mb-3">Telemetry</h1>
       <p class="text-zinc-500 text-sm">
-        Anonymous usage data to improve chronicle. No code, no personal info.
+        Usage telemetry helps improve chronicle. It does not include your code or repo metadata.
       </p>
     </section>
 
@@ -68,6 +68,13 @@ const notCollected = [
       </div>
     </section>
 
+    <section class="space-y-2 text-sm text-zinc-600">
+      <h2 class="text-lg font-medium text-zinc-300">Note</h2>
+      <p>
+        During <code class="text-zinc-400">analyze</code> and <code class="text-zinc-400">backfill</code>, code and other text-like changes may be sent to your configured AI provider to generate commit plans and messages. That provider traffic is separate from Chronicle telemetry.
+      </p>
+    </section>
+
     <section class="space-y-3">
       <h2 class="text-lg font-medium">Opt-Out</h2>
       <div class="space-y-2">
@@ -86,9 +93,7 @@ const notCollected = [
 
     <section class="text-sm text-zinc-600 space-y-2 pb-8">
       <p>
-        Data stored locally at <code class="text-zinc-400"
-          >~/.config/chronicle/telemetry.json</code
-        >
+        Local telemetry state and pending events are stored at <code class="text-zinc-400">~/.config/chronicle/telemetry.json</code> and <code class="text-zinc-400">~/.config/chronicle/telemetry-events.jsonl</code>
       </p>
       <p>
         <a
