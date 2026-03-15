@@ -57,24 +57,35 @@ app.get(
   async (c, next) => {
     if (!c.env.RATE_LIMIT_KV) return next();
 
-    return rateLimiter<{ Bindings: Env }>({
-      windowMs: 60 * 1000,
-      limit: 60,
-      standardHeaders: "draft-6",
-      keyGenerator: (c) => c.req.header("cf-connecting-ip") ?? "anonymous",
-      store: new WorkersKVStore({ namespace: c.env.RATE_LIMIT_KV, prefix: "rl_" }),
-    })(c, next);
+    try {
+      return await rateLimiter<{ Bindings: Env }>({
+        windowMs: 60 * 1000,
+        limit: 60,
+        standardHeaders: "draft-6",
+        keyGenerator: (c) => c.req.header("cf-connecting-ip") ?? "anonymous",
+        store: new WorkersKVStore({ namespace: c.env.RATE_LIMIT_KV, prefix: "rl_" }),
+      })(c, next);
+    } catch (error) {
+      console.error("Failed to apply stats rate limit", error);
+      return next();
+    }
   },
   async (c) => {
-    const days = parseInt(c.req.query("days") || "7", 10);
+    const rawDays = c.req.query("days") || "7";
+    const parsedDays = Number.parseInt(rawDays, 10);
+    const days = Number.isFinite(parsedDays) && parsedDays > 0 ? Math.min(parsedDays, 365) : 7;
     const cacheKey = `cache:stats:days:${days}`;
 
     if (c.env.RATE_LIMIT_KV) {
-      const cached = await c.env.RATE_LIMIT_KV.get(cacheKey, "json");
-      if (cached) {
-        c.header("X-Cache", "HIT");
-        c.header("Cache-Control", "public, max-age=300");
-        return c.json(cached);
+      try {
+        const cached = await c.env.RATE_LIMIT_KV.get(cacheKey, "json");
+        if (cached) {
+          c.header("X-Cache", "HIT");
+          c.header("Cache-Control", "public, max-age=300");
+          return c.json(cached);
+        }
+      } catch (error) {
+        console.error("Failed to read stats cache", error);
       }
     }
 
@@ -82,10 +93,14 @@ app.get(
     const stats = await getStats(db, days);
 
     if (c.env.RATE_LIMIT_KV) {
-      await c.env.RATE_LIMIT_KV.put(cacheKey, JSON.stringify(stats), {
-        expirationTtl: STATS_CACHE_SECONDS,
-      });
-      c.header("X-Cache", "MISS");
+      try {
+        await c.env.RATE_LIMIT_KV.put(cacheKey, JSON.stringify(stats), {
+          expirationTtl: STATS_CACHE_SECONDS,
+        });
+        c.header("X-Cache", "MISS");
+      } catch (error) {
+        console.error("Failed to write stats cache", error);
+      }
     }
 
     c.header("Cache-Control", "public, max-age=300");
