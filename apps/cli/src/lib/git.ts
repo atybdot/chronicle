@@ -15,6 +15,44 @@ export interface GitCommit {
   date: Date;
 }
 
+function coerceShellOutput(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (value instanceof Uint8Array) return new TextDecoder().decode(value).trim();
+  if (value == null) return "";
+  return String(value).trim();
+}
+
+function formatGitCommandOutput(error: unknown): string {
+  if (!error || typeof error !== "object") return "";
+
+  const shellError = error as { stdout?: unknown; stderr?: unknown };
+  const stderr = coerceShellOutput(shellError.stderr);
+  const stdout = coerceShellOutput(shellError.stdout);
+  const sections: string[] = [];
+
+  if (stderr) sections.push(`stderr:\n${stderr}`);
+  if (stdout) sections.push(`stdout:\n${stdout}`);
+
+  return sections.join("\n\n");
+}
+
+const GIT_HOOK_ERROR_PATTERNS = [
+  /husky/i,
+  /pre-commit/i,
+  /commit-msg/i,
+  /lint-staged/i,
+  /prepare-commit-msg/i,
+  /post-commit/i,
+  /hooks\/(pre-commit|commit-msg|prepare-commit-msg|post-commit)/i,
+  /git hook/i,
+  /hook failed/i,
+  /hook declined/i,
+];
+
+export function isGitHookError(message: string): boolean {
+  return GIT_HOOK_ERROR_PATTERNS.some((pattern) => pattern.test(message));
+}
+
 /**
  * Check if current directory is a git repository
  */
@@ -124,6 +162,20 @@ export async function getFileDiff(filePath: string, staged = false, cwd?: string
 }
 
 /**
+ * Get full diff for a file against HEAD (includes staged + unstaged)
+ */
+export async function getFileDiffFromHead(filePath: string, cwd?: string): Promise<string> {
+  const workdir = cwd ?? process.cwd();
+
+  try {
+    const result = await $`git diff HEAD -- ${filePath}`.cwd(workdir).text();
+    return result;
+  } catch {
+    return "";
+  }
+}
+
+/**
  * Get content of untracked file
  */
 export async function getFileContent(filePath: string, cwd?: string): Promise<string> {
@@ -135,6 +187,21 @@ export async function getFileContent(filePath: string, cwd?: string): Promise<st
     return await file.text();
   } catch {
     return "";
+  }
+}
+
+/**
+ * Get raw bytes for an untracked file
+ */
+export async function getFileBytes(filePath: string, cwd?: string): Promise<Uint8Array> {
+  const workdir = cwd ?? process.cwd();
+  const fullPath = `${workdir}/${filePath}`;
+
+  try {
+    const file = Bun.file(fullPath);
+    return new Uint8Array(await file.arrayBuffer());
+  } catch {
+    return new Uint8Array();
   }
 }
 
@@ -196,36 +263,36 @@ export async function stageFileHunks(
   const workdir = cwd ?? process.cwd();
   const gitRoot = await getGitRoot(workdir);
   const filesStaged: string[] = [];
-  
+
   for (const fileHunk of fileHunks) {
     const diff = diffs.get(fileHunk.path);
-    
+
     if (!diff) {
       await $`git add -- ${fileHunk.path}`.cwd(gitRoot);
       filesStaged.push(fileHunk.path);
       continue;
     }
-    
+
     if (fileHunk.hunks.length === 0) {
       continue;
     }
-    
+
     const fileHunksData = parseDiffIntoHunks(diff, fileHunk.path, "modified");
-    
+
     if (fileHunksData.isNewFile) {
       await $`git add -- ${fileHunk.path}`.cwd(gitRoot);
       filesStaged.push(fileHunk.path);
       continue;
     }
-    
+
     if (fileHunksData.isDeletedFile) {
       await $`git add -- ${fileHunk.path}`.cwd(gitRoot);
       filesStaged.push(fileHunk.path);
       continue;
     }
-    
+
     const hunkIndices = getHunksByRange(fileHunksData, fileHunk.hunks);
-    
+
     if (hunkIndices.length === 0) {
       const allHunkIndices = fileHunksData.hunks.map((_, i) => i);
       const patch = createPartialPatch(fileHunksData, allHunkIndices);
@@ -237,9 +304,9 @@ export async function stageFileHunks(
       }
       continue;
     }
-    
+
     const patch = createPartialPatch(fileHunksData, hunkIndices);
-    
+
     if (patch) {
       const success = await stagePartialPatch(patch, gitRoot);
       if (success) {
@@ -247,7 +314,77 @@ export async function stageFileHunks(
       }
     }
   }
-  
+
+  return {
+    success: filesStaged.length > 0,
+    filesStaged,
+  };
+}
+
+/**
+ * Stage specific hunks by their indices - more reliable than line ranges
+ */
+export async function stageFileHunksByIndex(
+  fileHunks: FileHunkSpec[],
+  diffs: Map<string, string>,
+  cwd?: string,
+): Promise<StagedHunkResult> {
+  const workdir = cwd ?? process.cwd();
+  const gitRoot = await getGitRoot(workdir);
+  const filesStaged: string[] = [];
+
+  for (const fileHunk of fileHunks) {
+    const diff = diffs.get(fileHunk.path);
+
+    if (!diff) {
+      await $`git add -- ${fileHunk.path}`.cwd(gitRoot);
+      filesStaged.push(fileHunk.path);
+      continue;
+    }
+
+    // Use hunkIndices if available, otherwise fall back to line ranges
+    const indices = fileHunk.hunkIndices;
+    if (!indices || indices.length === 0) {
+      // Fall back to the original method
+      const result = await stageFileHunks([fileHunk], diffs, cwd);
+      if (result.success) {
+        filesStaged.push(...result.filesStaged);
+      }
+      continue;
+    }
+
+    const fileHunksData = parseDiffIntoHunks(diff, fileHunk.path, "modified");
+
+    if (fileHunksData.isNewFile) {
+      await $`git add -- ${fileHunk.path}`.cwd(gitRoot);
+      filesStaged.push(fileHunk.path);
+      continue;
+    }
+
+    if (fileHunksData.isDeletedFile) {
+      await $`git add -- ${fileHunk.path}`.cwd(gitRoot);
+      filesStaged.push(fileHunk.path);
+      continue;
+    }
+
+    // Use the provided hunk indices directly
+    const validIndices = indices.filter(i => i >= 0 && i < fileHunksData.hunks.length);
+
+    if (validIndices.length === 0) {
+      console.warn(`No valid hunk indices for ${fileHunk.path}`);
+      continue;
+    }
+
+    const patch = createPartialPatch(fileHunksData, validIndices);
+
+    if (patch) {
+      const success = await stagePartialPatch(patch, gitRoot);
+      if (success) {
+        filesStaged.push(fileHunk.path);
+      }
+    }
+  }
+
   return {
     success: filesStaged.length > 0,
     filesStaged,
@@ -295,6 +432,7 @@ export async function createCommit(
   authorName?: string,
   authorEmail?: string,
   cwd?: string,
+  noVerify = false,
 ): Promise<string> {
   const workdir = cwd ?? process.cwd();
   const isoDate = date.toISOString();
@@ -306,14 +444,24 @@ export async function createCommit(
     GIT_COMMITTER_DATE: isoDate,
   };
 
-  if (authorName) env.GIT_AUTHOR_NAME = authorName;
-  if (authorEmail) env.GIT_AUTHOR_EMAIL = authorEmail;
+  if (authorName) {
+    env.GIT_AUTHOR_NAME = authorName;
+    env.GIT_COMMITTER_NAME = authorName;
+  }
+  if (authorEmail) {
+    env.GIT_AUTHOR_EMAIL = authorEmail;
+    env.GIT_COMMITTER_EMAIL = authorEmail;
+  }
 
   try {
-    await $`git commit -m ${message}`.cwd(workdir).env(env).text();
+    const commitArgs = noVerify ? ["--no-verify"] : [];
+    await $`git commit ${commitArgs} -m ${message}`.cwd(workdir).env(env).text();
   } catch (error) {
+    const gitOutput = formatGitCommandOutput(error);
+    const errorDetails = [error instanceof Error ? error.message.trim() : "", gitOutput].filter(Boolean).join("\n\n");
+
     // Check if this is an author identity error
-    const errorStr = String(error);
+    const errorStr = errorDetails || String(error);
     if (errorStr.includes("Author identity unknown") || errorStr.includes("user.email") || errorStr.includes("user.name")) {
       throw new Error(
         "Git author identity not configured.\n\n" +
@@ -322,10 +470,11 @@ export async function createCommit(
         "  git config --global user.email \"your.email@example.com\"\n\n" +
         "Or set them in the chronicle config:\n" +
         "  chronicle config set git.authorName \"Your Name\"\n" +
-        "  chronicle config set git.authorEmail \"your.email@example.com\""
+        "  chronicle config set git.authorEmail \"your.email@example.com\"" +
+        (gitOutput ? `\n\nGit output:\n${gitOutput}` : "")
       );
     }
-    throw error;
+    throw new Error(`git commit failed${errorDetails ? `\n\n${errorDetails}` : ""}`);
   }
 
   // Get the commit hash after commit is created
