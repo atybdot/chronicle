@@ -27,10 +27,10 @@ export class NoApiKeyError extends TaggedError("NoApiKeyError")<{
   provider: string;
   message: string;
 }>() {
-  constructor(args: { provider: string }) {
+  constructor(args: { provider: string; message?: string }) {
     super({
-      ...args,
-      message: `No API key configured for ${args.provider}. Run 'chronicle config init' to set up or set CHRONICLE_AI_KEY environment variable.`,
+      provider: args.provider,
+      message: args.message ?? `No API key configured for ${args.provider}. Run 'chronicle config init' to set up or set CHRONICLE_AI_KEY environment variable.`,
     });
   }
 }
