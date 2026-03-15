@@ -3,7 +3,15 @@ import { z } from "zod";
 import { hasApiKey } from "../lib/config";
 import { handleAnalyze } from "./analyze";
 import { handleBackfill } from "./backfill";
-import { handleConfigInit, handleConfigShow, handleConfigPrompt, handleConfigTelemetry } from "./config";
+import {
+  handleConfigInit,
+  handleConfigShow,
+  handleConfigPrompt,
+  handleConfigTelemetry,
+  handleConfigCacheClear,
+  handleConfigModel,
+  handleConfigProvider,
+} from "./config";
 import { handleStatus } from "./status";
 
 const t = initTRPC.create();
@@ -73,6 +81,18 @@ export const router = t.router({
       .mutation(async ({ input }) => {
         await handleConfigTelemetry(input);
       }),
+
+    cacheClear: t.procedure.meta({ description: "Clear all Chronicle caches" }).mutation(async () => {
+      await handleConfigCacheClear();
+    }),
+
+    model: t.procedure.meta({ description: "Change the LLM model" }).mutation(async () => {
+      await handleConfigModel();
+    }),
+
+    provider: t.procedure.meta({ description: "Change the LLM provider" }).mutation(async () => {
+      await handleConfigProvider();
+    }),
   }),
 
   status: t.procedure
@@ -81,6 +101,7 @@ export const router = t.router({
     .query(async ({ input }) => {
       await handleStatus(input);
     }),
+
 });
 
 export type AppRouter = typeof router;
