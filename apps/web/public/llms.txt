@@ -1,0 +1,87 @@
+# Chronicle
+
+Chronicle is an AI-powered CLI that turns uncommitted changes into atomic git commits with realistic timestamps.
+
+## Overview
+
+- Analyze working tree changes and generate commit plans
+- Backfill history across a date range with realistic commit timing
+- Support multiple AI providers: OpenAI, Anthropic, Gemini, OpenRouter, Ollama, Cloudflare, OpenCode Zen, and Groq
+- Keep binary assets out of LLM context while still handling them during commit generation
+
+## Installation
+
+```bash
+bun i -g @atybdot/chronicle
+```
+
+## Commands
+
+### analyze
+
+Analyze uncommitted changes and generate a commit plan.
+
+- `--path` - Path to git repository
+- `--date-range` - Date range for commit distribution
+- `--include-staged` - Include staged changes
+- `--include-unstaged` - Include unstaged changes
+- `--include-untracked` - Include untracked files
+
+### backfill
+
+Backfill git history with intelligent commit splitting.
+
+- `--path` - Path to git repository
+- `--date-range` - Date range (for example, `spread over 2 weeks`)
+- `--start-date` - Start date (ISO format)
+- `--end-date` - End date (ISO format)
+- `--dry-run` - Preview without making changes
+- `--interactive` - Interactive mode with prompts
+- `--output` - Output format: `visual`, `json`, `minimal`
+
+If git hooks fail during backfill, Chronicle can retry the current and remaining commits without hooks using `--no-verify`.
+
+### status
+
+Show status of current repository changes.
+
+- `--path` - Path to git repository
+
+### config
+
+Configure Chronicle settings.
+
+- `init` - Interactive setup wizard
+- `show` - Show current configuration
+- `model` - Change the selected model
+- `provider` - Change the selected provider
+- `prompt` - Set or clear custom AI instructions
+- `telemetry` - Manage telemetry settings
+
+## Configuration
+
+Chronicle uses a multi-provider config shape.
+
+- `llm.selected.provider` - active provider
+- `llm.selected.model` - active model
+- `llm.providers[]` - saved provider credentials and provider-specific settings
+- Saved credentials are reused when you switch providers
+- Legacy single-provider config is auto-migrated into the current shape
+
+## AI Input Handling
+
+- `analyze` and `backfill` are asset-aware
+- Code and other text-like files are sent to your configured AI provider
+- Binary files and assets stay out of LLM context
+- Assets are attached to related commits when possible, or committed through deterministic fallback commits
+- For models that do not support `json_schema`, Chronicle falls back to prompt-based structured output and validates the result locally
+
+## Links
+
+- Home: https://chronicle.atyb.me
+- Commands: https://chronicle.atyb.me/commands
+- Configuration: https://chronicle.atyb.me/configuration
+- Telemetry: https://chronicle.atyb.me/telemetry
+- Stats: https://chronicle.atyb.me/stats
+- GitHub: https://github.com/atybdot/chronicle
+- npm: https://www.npmjs.com/packages/@atybdot/chronicle
