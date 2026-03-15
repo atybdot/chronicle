@@ -2,7 +2,9 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "chronicle-telemetry",
   "compatibility_date": "2026-02-11",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "main": "src/index.ts",
   "d1_databases": [
     {
@@ -17,5 +19,11 @@
       "binding": "RATE_LIMIT_KV",
       "id": "de7a4263b76a4826a0c0e303fe88419a"
     }
-  ]
+  ],
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  }
 }
