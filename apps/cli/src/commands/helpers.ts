@@ -58,7 +58,8 @@ export async function selectModelWithSearch(
   }
 
   if (selectionMode === "recommended") {
-    const options = recommendedModels.map((m, index) => ({
+    const recommendedOrDefault = recommendedModels.length > 0 ? recommendedModels : models.slice(0, 15);
+    const options = recommendedOrDefault.map((m, index) => ({
       value: m.id,
       label: m.id,
       hint: index === 0 ? "default" : undefined,
