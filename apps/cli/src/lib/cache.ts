@@ -1,8 +1,11 @@
 import { homedir } from "os";
 import { join } from "path";
 import { createHash } from "crypto";
+import { mkdir, rm } from "fs/promises";
 
-const CACHE_DIR = join(homedir(), ".cache", "chronicle");
+function getCacheDir(): string {
+  return process.env.CHRONICLE_CACHE_DIR ?? join(homedir(), ".cache", "chronicle");
+}
 
 interface CacheEntry<T> {
   value: T;
@@ -29,19 +32,15 @@ export function generateCacheKey(data: unknown): string {
  * Get cache file path for a given key and namespace
  */
 function getCacheFilePath(key: string, namespace: string): string {
-  return join(CACHE_DIR, namespace, `${key}.json`);
+  return join(getCacheDir(), namespace, `${key}.json`);
 }
 
 /**
  * Ensure cache directory exists
  */
 async function ensureCacheDir(namespace: string): Promise<void> {
-  const dir = join(CACHE_DIR, namespace);
-  try {
-    await Bun.write(join(dir, ".keep"), "");
-  } catch {
-    // Directory might already exist
-  }
+  const dir = join(getCacheDir(), namespace);
+  await mkdir(dir, { recursive: true });
 }
 
 /**
@@ -122,21 +121,11 @@ export async function deleteCache(key: string, options: CacheOptions = {}): Prom
  * Clear all cached values in a namespace
  */
 export async function clearCache(namespace?: string): Promise<void> {
-  const targetDir = namespace ? join(CACHE_DIR, namespace) : CACHE_DIR;
+  const cacheDir = getCacheDir();
+  const targetDir = namespace ? join(cacheDir, namespace) : cacheDir;
 
   try {
-    const dir = Bun.file(targetDir);
-    if (!(await dir.exists())) {
-      return;
-    }
-
-    // List all files in the directory
-    const files = await Array.fromAsync(Bun.file(targetDir).stream());
-    for (const file of files) {
-      if (file.toString().endsWith(".json")) {
-        await Bun.file(join(targetDir, file.toString())).delete();
-      }
-    }
+    await rm(targetDir, { recursive: true, force: true });
   } catch {
     // Ignore errors
   }
