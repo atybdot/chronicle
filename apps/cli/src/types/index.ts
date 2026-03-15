@@ -8,6 +8,7 @@ export interface LineRange {
 export interface FileHunkSpec {
   path: string;
   hunks: LineRange[];
+  hunkIndices?: number[]; // Optional: for direct hunk index staging
 }
 
 export const FileChangeSchema = z.object({
@@ -28,6 +29,7 @@ export const PlannedCommitSchema = z.object({
       start: z.number(),
       end: z.number(),
     })),
+    hunkIndices: z.array(z.number()).optional(),
   })).optional(),
   category: z.enum(["setup", "feature", "fix", "refactor", "docs", "test", "chore", "style"]),
   scheduledDate: z.date().optional(),
@@ -46,15 +48,39 @@ export const CommitPlanSchema = z.object({
 });
 
 // Config schemas
-export const LLMProviderSchema = z.enum(["openai", "anthropic", "gemini", "openrouter", "ollama"]);
+export const LLMProviderSchema = z.enum([
+  "openai",
+  "anthropic",
+  "gemini",
+  "openrouter",
+  "ollama",
+  "cloudflare",
+  "opencode-zen",
+  "groq",
+]);
+
+export const LLMSelectedSchema = z.object({
+  provider: LLMProviderSchema.default("openrouter"),
+  model: z.string().optional(),
+});
+
+export const LLMProviderConfigSchema = z.object({
+  name: LLMProviderSchema,
+  API_TOKEN: z.string().optional(),
+  model: z.string().optional(),
+  baseUrl: z.string().optional(),
+  accountId: z.string().optional(),
+  gatewayId: z.string().optional(),
+});
 
 export const ConfigSchema = z.object({
   llm: z.object({
-    provider: LLMProviderSchema.default("openai"),
-    model: z.string().optional(),
-    apiKey: z.string().optional(),
-    baseUrl: z.string().optional(), // for ollama or custom endpoints
-    customPrompt: z.string().optional(), // custom instructions appended to AI prompts
+    selected: LLMSelectedSchema.default({
+      provider: "openrouter",
+      model: undefined,
+    }),
+    providers: z.array(LLMProviderConfigSchema).default([]),
+    customPrompt: z.string().optional(),
   }),
   git: z.object({
     authorName: z.string().optional(),
@@ -83,6 +109,8 @@ export type PlannedCommit = z.infer<typeof PlannedCommitSchema>;
 export type CommitPlan = z.infer<typeof CommitPlanSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
 export type LLMProvider = z.infer<typeof LLMProviderSchema>;
+export type LLMSelected = z.infer<typeof LLMSelectedSchema>;
+export type LLMProviderConfig = z.infer<typeof LLMProviderConfigSchema>;
 export type AnalysisResult = z.infer<typeof AnalysisResultSchema>;
 
 // CLI input schemas
