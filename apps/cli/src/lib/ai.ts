@@ -72,6 +72,7 @@ const ANALYSIS_INITIAL_HUNK_LIMIT = 120;
 const ANALYSIS_MIN_HUNK_LIMIT = 8;
 const COMMIT_MESSAGES_CHAR_BUDGET = 8000;
 const MAX_ANALYZABLE_FILES_PER_GROUP = 2;
+const MAX_ANALYSIS_PASSES = 3;
 
 const COMMIT_MESSAGE_DETAIL_CONFIG: Record<
   CommitMessagePromptDetail,
@@ -301,6 +302,22 @@ function normalizeAssignedAnalysisGroups(
     })
     .filter((group) => group.hunkIds.length > 0);
 
+  return {
+    groups,
+    assignedHunkIds: Array.from(assigned),
+  };
+}
+
+function appendDeterministicFallbackGroups(
+  groups: NormalizedHunkGroup[],
+  unassignedHunks: HunkDescriptor[],
+  selectedHunkIds: Set<string>,
+): {
+  groups: NormalizedHunkGroup[];
+  fallbackGroupCount: number;
+  fallbackHunkCount: number;
+} {
+  const normalizedGroups = groups.map((group) => ({ ...group, hunkIds: [...group.hunkIds] }));
   let orderCursor =
     normalizedGroups.length > 0
       ? Math.max(...normalizedGroups.map((group) => group.order)) + 1
@@ -342,6 +359,25 @@ function normalizeAssignedAnalysisGroups(
       0,
     ),
   };
+}
+
+function normalizeAnalysisGroups(
+  apiGroups: ModelAnalysisGroup[],
+  allHunks: HunkDescriptor[],
+  selectedHunkIds: Set<string>,
+): {
+  groups: NormalizedHunkGroup[];
+  fallbackGroupCount: number;
+  fallbackHunkCount: number;
+} {
+  const normalized = normalizeAssignedAnalysisGroups(apiGroups, selectedHunkIds);
+  const assignedHunkIds = new Set(normalized.assignedHunkIds);
+
+  return appendDeterministicFallbackGroups(
+    normalized.groups,
+    allHunks.filter((hunk) => !assignedHunkIds.has(hunk.id)),
+    selectedHunkIds,
+  );
 }
 
 function buildAnalysisGroupsFromHunkGroups(
@@ -1148,6 +1184,8 @@ export const __internal = {
   buildAdaptiveReductionSequence,
   buildCommitMessagesBasePrompt,
   isOversizedRequestError,
+  normalizeAssignedAnalysisGroups,
+  appendDeterministicFallbackGroups,
   normalizeAnalysisGroups,
   buildAnalysisGroupsFromHunkGroups,
   splitAnalysisGroupsByFileLimit,
@@ -1376,6 +1414,172 @@ Provide your analysis with recommended commit groups. Be AGGRESSIVE in splitting
   });
 
   return object;
+}
+
+type AnalysisPassResult = {
+  groups: NormalizedHunkGroup[];
+  assignedHunkIds: string[];
+  attempts: number;
+  contextLimited: boolean;
+  reasoning: string[];
+  suggestedDays: number[];
+};
+
+async function analyzeHunksInBoundedPasses({
+  model,
+  analyzableFiles,
+  assetFiles,
+  allHunks,
+  provider,
+  modelId,
+}: {
+  model: ReturnType<ReturnType<typeof createOpenAI>>;
+  analyzableFiles: FileChange[];
+  assetFiles: FileChange[];
+  allHunks: HunkDescriptor[];
+  provider: string;
+  modelId: string;
+}): Promise<AnalysisPassResult> {
+  const remainingHunks = [...allHunks];
+  const accumulatedGroups: NormalizedHunkGroup[] = [];
+  const reasoning: string[] = [];
+  const suggestedDays: number[] = [];
+  let contextLimited = false;
+  let globalOrderCursor = 1;
+  let passCount = 0;
+
+  while (remainingHunks.length > 0 && passCount < MAX_ANALYSIS_PASSES) {
+    passCount++;
+
+    const selectionPlan = buildAdaptiveReductionSequence(
+      Math.min(remainingHunks.length, ANALYSIS_INITIAL_HUNK_LIMIT),
+      Math.min(remainingHunks.length, ANALYSIS_MIN_HUNK_LIMIT),
+    );
+
+    let passCompleted = false;
+    let passError: unknown;
+
+    for (const hunkCount of selectionPlan) {
+      const selectedHunks = remainingHunks.slice(0, hunkCount);
+      const context = renderHunkContext(
+        selectedHunks,
+        "compact",
+        remainingHunks.length - selectedHunks.length,
+      );
+      const basePrompt = buildAnalysisBasePrompt({
+        context,
+        analyzableFileCount: analyzableFiles.length,
+        assetFiles,
+        totalHunks: allHunks.length,
+        selectedHunks,
+      });
+      const prompt = await buildPrompt(basePrompt);
+
+      if (prompt.length > ANALYSIS_CONTEXT_CHAR_BUDGET && hunkCount !== selectionPlan.at(-1)) {
+        continue;
+      }
+
+      try {
+        const apiResult = await requestCachedStructuredObject({
+          model,
+          schema: z.object({
+            suggestedCommits: z.number(),
+            suggestedDays: z.number(),
+            reasoning: z.string(),
+            groups: z.array(
+              z.object({
+                name: z.string(),
+                description: z.string(),
+                hunkIds: z.array(z.string()),
+                category: z.enum([
+                  "setup",
+                  "feature",
+                  "fix",
+                  "refactor",
+                  "docs",
+                  "test",
+                  "chore",
+                  "style",
+                ]),
+                order: z.number(),
+              }),
+            ),
+          }),
+          prompt,
+          cacheKey: generateCacheKey({
+            prompt,
+            hunkCount: selectedHunks.length,
+            pass: passCount,
+            remaining: remainingHunks.length,
+          }),
+          ttl: 24 * 60 * 60 * 1000,
+          requestType: "analyze",
+          provider,
+          modelId,
+        });
+
+        const selectedHunkIds = new Set(selectedHunks.map((hunk) => hunk.id));
+        const normalized = normalizeAssignedAnalysisGroups(
+          apiResult.object.groups.map((group) => ({
+            ...group,
+            category: group.category as AnalysisGroup["category"],
+          })),
+          selectedHunkIds,
+        );
+
+        if (normalized.assignedHunkIds.length === 0) {
+          contextLimited = contextLimited || remainingHunks.length > selectedHunks.length;
+          passCompleted = true;
+          break;
+        }
+
+        for (const group of normalized.groups) {
+          accumulatedGroups.push({
+            ...group,
+            order: globalOrderCursor++,
+            hunkIds: [...group.hunkIds],
+          });
+        }
+
+        const assignedIds = new Set(normalized.assignedHunkIds);
+        for (let index = remainingHunks.length - 1; index >= 0; index--) {
+          const hunk = remainingHunks[index];
+          if (hunk && assignedIds.has(hunk.id)) {
+            remainingHunks.splice(index, 1);
+          }
+        }
+
+        reasoning.push(apiResult.object.reasoning);
+        suggestedDays.push(apiResult.object.suggestedDays);
+        contextLimited = contextLimited || remainingHunks.length > selectedHunks.length;
+        passCompleted = true;
+        break;
+      } catch (error) {
+        passError = error;
+        if (isOversizedRequestError(error) && hunkCount !== selectionPlan.at(-1)) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    if (!passCompleted) {
+      throw passError;
+    }
+
+    if (remainingHunks.length === 0) {
+      break;
+    }
+  }
+
+  return {
+    groups: accumulatedGroups,
+    assignedHunkIds: accumulatedGroups.flatMap((group) => group.hunkIds),
+    attempts: passCount,
+    contextLimited,
+    reasoning,
+    suggestedDays,
+  };
 }
 
 /**
