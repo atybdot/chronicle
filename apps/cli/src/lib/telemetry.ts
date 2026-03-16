@@ -129,6 +129,7 @@ class TelemetryClient {
 
     try {
       this.state = await this.loadState();
+      await this.flushPendingEvents();
       this.initialized = true;
       this.flushPendingEvents().catch(() => {});
     } catch {
