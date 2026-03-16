@@ -17,7 +17,7 @@ interface Props {
 const siteUrl = "https://chronicle.atyb.me";
 const defaultTitle = "chronicle — AI-Powered Git Commit History Backfilling";
 const defaultDescription =
-  "Intelligently backfill git commit history by analyzing uncommitted changes and splitting them into atomic, well-organized commits with realistic timestamps.";
+  "Turn uncommitted changes into atomic backfilled commits with realistic timestamps, multi-provider AI setup, and asset-aware analysis.";
 const author = "atybdot";
 const defaultKeywords =
   "git, commit history, backfill, AI, developer tools, version control, git history, atomic commits, CLI tool";
@@ -66,11 +66,11 @@ const softwareAppSchema = {
   downloadUrl: "https://github.com/atybdot/chronicle",
   softwareVersion: "1.0.0",
   featureList: [
-    "AI-powered commit message generation",
+    "Multi-provider AI configuration",
     "Atomic commit splitting",
     "Realistic timestamp generation",
     "Git history backfilling",
-    "Intelligent change analysis",
+    "Asset-aware change analysis",
   ],
 };
 
@@ -83,7 +83,7 @@ const faqSchema = {
       name: "What is chronicle?",
       acceptedAnswer: {
         "@type": "Answer",
-        text: "Chronicle is an AI-powered CLI tool that intelligently backfills git commit history by analyzing uncommitted changes and splitting them into atomic, well-organized commits with realistic timestamps.",
+        text: "Chronicle is an AI-powered CLI tool that turns uncommitted changes into atomic backfilled commits with realistic timestamps, flexible provider support, and asset-aware analysis.",
       },
     },
     {
@@ -91,7 +91,7 @@ const faqSchema = {
       name: "How does chronicle work?",
       acceptedAnswer: {
         "@type": "Answer",
-        text: "Chronicle analyzes your uncommitted changes, uses AI to understand the logical groupings, and creates atomic commits with meaningful messages and realistic timestamps that reflect when the work was actually done.",
+        text: "Chronicle analyzes code and text-like changes with your configured provider, keeps binary assets out of LLM context, attaches those assets to related commits when possible, and builds a realistic backfill plan with commit messages and timestamps.",
       },
     },
     {

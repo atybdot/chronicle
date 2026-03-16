@@ -170,7 +170,7 @@ export function renderPlanSummary(plan: CommitPlan): string {
   lines.push(`  ${pc.cyan("Total commits:")} ${plan.commits.length}`);
   lines.push(`  ${pc.cyan("Total files:")} ${plan.totalFiles}`);
   lines.push(
-    `  ${pc.cyan("Date range:")} ${stats.dateRange.start.toLocaleDateString()} - ${stats.dateRange.end.toLocaleDateString()}`,
+    `  ${pc.cyan("Date range:")} ${plan.dateRange.start.toLocaleDateString()} - ${plan.dateRange.end.toLocaleDateString()}`,
   );
   lines.push(`  ${pc.cyan("Days:")} ${stats.totalDays}`);
   lines.push(`  ${pc.cyan("Avg commits/day:")} ${stats.avgPerDay.toFixed(1)}`);

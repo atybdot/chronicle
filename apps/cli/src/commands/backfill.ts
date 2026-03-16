@@ -1,12 +1,14 @@
 import * as p from "@clack/prompts";
 import pc from "picocolors";
-import { Result } from "better-result";
 import {
   isGitRepo,
+  isGitHookError,
   getGitStatus,
-  getFileDiff,
+  getFileDiffFromHead,
   getFileContent,
+  getFileBytes,
   stageFiles,
+  stageFileHunksByIndex,
   unstageAll,
   createCommit,
   createBackupBranch,
@@ -14,16 +16,148 @@ import {
   getGitIdentity,
   setGitConfig,
   hasStagedChanges,
+  getRecentCommits,
 } from "../lib/git";
-import { analyzeChangesSafe, generateCommitMessages, parseDateRange, formatAIError } from "../lib/ai";
+import { parseDateRange, formatAIError, analyzeChangesSafe, generateCommitMessages } from "../lib/ai";
 import { distributeCommits } from "../lib/distribution";
 import { loadConfig, saveConfig } from "../lib/config";
 import { renderCommitList, renderPlanSummary, exportPlanAsJson } from "../lib/output";
 import { telemetry, createTimer } from "../lib/telemetry";
-import type { FileChange, PlannedCommit, CommitPlan } from "../types";
+import type { FileChange, PlannedCommit, CommitPlan, FileHunkSpec } from "../types";
+
+function buildPlannedCommitsFromAnalysis(
+  groups: Array<{
+    name: string;
+    description: string;
+    files: string[];
+    commitMessage?: string;
+    fileHunks: Array<{
+      path: string;
+      lineRanges: Array<{ start: number; end: number }>;
+      hunkIndices: number[];
+    }>;
+    category: string;
+    order: number;
+  }>,
+  allFiles: FileChange[],
+  messages: string[],
+): PlannedCommit[] {
+  const commitGroups = [...groups].sort((a, b) => a.order - b.order);
+
+  return commitGroups.map((group, index) => ({
+    id: `commit-${index}`,
+    message: group.commitMessage ?? messages[index] ?? `${group.category}: ${group.name}`,
+    description: group.description,
+    files: group.files
+      .map((filePath) => allFiles.find((f) => f.path === filePath))
+      .filter((f): f is NonNullable<typeof f> => f !== undefined),
+    fileHunks: group.fileHunks.map((fileHunk) => ({
+      path: fileHunk.path,
+      hunks: fileHunk.lineRanges,
+      hunkIndices: fileHunk.hunkIndices,
+    })),
+    category: group.category as PlannedCommit["category"],
+  }));
+}
+
+function buildFallbackCommitMessage(path: string): string {
+  return `chore: include remaining changes in ${path}`;
+}
+
+function getMinimumSuggestedTimelineDays(groups: Array<{ fileHunks: Array<{ path: string }> }>): number {
+  const analyzableFileCount = groups.reduce((total, group) => total + group.fileHunks.length, 0);
+  return Math.max(groups.length, analyzableFileCount);
+}
+
+function dedupeChangedFiles(status: Awaited<ReturnType<typeof getGitStatus>>): FileChange[] {
+  const files = new Map<string, FileChange>();
+
+  for (const file of [...status.staged, ...status.unstaged]) {
+    if (!files.has(file.path)) {
+      files.set(file.path, file);
+    }
+  }
+
+  for (const path of status.untracked) {
+    if (!files.has(path)) {
+      files.set(path, { path, status: "added" });
+    }
+  }
+
+  return Array.from(files.values()).sort((a, b) => a.path.localeCompare(b.path));
+}
+
+async function getRemainingChangedFiles(cwd: string): Promise<FileChange[]> {
+  const status = await getGitStatus(cwd);
+  return dedupeChangedFiles(status);
+}
+
+type FallbackCommitExecutionResult = {
+  created: number;
+  messages: string[];
+  remainingFiles: FileChange[];
+  error?: Error;
+};
+
+async function createFallbackCommitsForRemainingChanges(options: {
+  cwd: string;
+  commitAuthorName?: string;
+  commitAuthorEmail?: string;
+  noVerify: boolean;
+  startDate: Date;
+}): Promise<FallbackCommitExecutionResult> {
+  const { cwd, commitAuthorName, commitAuthorEmail, noVerify, startDate } = options;
+  const remainingFiles = await getRemainingChangedFiles(cwd);
+  const messages: string[] = [];
+  let created = 0;
+
+  for (const file of remainingFiles) {
+    const commitDate = new Date(startDate.getTime() + created * 60_000);
+
+    try {
+      await unstageAll(cwd).catch(() => undefined);
+      await stageFiles([file.path], cwd);
+
+      if (!(await hasStagedChanges(cwd))) {
+        continue;
+      }
+
+      const message = buildFallbackCommitMessage(file.path);
+      await createCommit(
+        message,
+        commitDate,
+        commitAuthorName,
+        commitAuthorEmail,
+        cwd,
+        noVerify,
+      );
+      messages.push(message);
+      created++;
+    } catch (error) {
+      await unstageAll(cwd).catch(() => undefined);
+      return {
+        created,
+        messages,
+        remainingFiles: await getRemainingChangedFiles(cwd),
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
+    }
+  }
+
+  return {
+    created,
+    messages,
+    remainingFiles: await getRemainingChangedFiles(cwd),
+  };
+}
 
 function formatDate(date: Date): string {
   return date.toISOString().slice(0, 10);
+}
+
+function formatExecutionError(error: unknown): string {
+  if (error instanceof Error) return error.message.trim();
+  return String(error).trim();
 }
 
 export async function handleBackfill(input: {
@@ -49,29 +183,30 @@ export async function handleBackfill(input: {
 
   if (!(await isGitRepo(cwd))) {
     p.cancel("Not a git repository");
-    process.exit(1);
+    return;
   }
 
-  p.intro(pc.bgCyan(pc.black(" chronicle ")));
-
   const spinner = p.spinner();
-  spinner.start("Analyzing repository...");
+  spinner.start("Checking for changes...");
 
   const status = await getGitStatus(cwd);
   const allFiles: FileChange[] = [];
   const diffs = new Map<string, string>();
   const untrackedContent = new Map<string, string>();
+  const untrackedBytes = new Map<string, Uint8Array>();
 
   for (const file of [...status.staged, ...status.unstaged]) {
     if (!allFiles.find((f) => f.path === file.path)) {
       allFiles.push(file);
-      const diff = await getFileDiff(file.path, status.staged.includes(file), cwd);
+      const diff = await getFileDiffFromHead(file.path, cwd);
       if (diff) diffs.set(file.path, diff);
     }
   }
 
   for (const path of status.untracked) {
     allFiles.push({ path, status: "added" });
+    const bytes = await getFileBytes(path, cwd);
+    if (bytes.length > 0) untrackedBytes.set(path, bytes);
     const content = await getFileContent(path, cwd);
     if (content) untrackedContent.set(path, content);
   }
@@ -79,21 +214,35 @@ export async function handleBackfill(input: {
   if (allFiles.length === 0) {
     spinner.stop("No changes found");
     p.cancel("No changes to backfill");
-    process.exit(1);
+    return;
   }
 
-  spinner.message(`Found ${allFiles.length} files, analyzing...`);
+  const fileCount = allFiles.length;
+  const largeRepo = fileCount > 20;
+  console.log(pc.dim(`\n  Found ${fileCount} files to analyze${largeRepo ? " (large repo - this may take a minute)" : ""}`));
 
-  const analysisResult = await analyzeChangesSafe(allFiles, diffs, untrackedContent);
+  spinner.start("Analyzing changes with AI...");
 
-  if (!Result.isOk(analysisResult)) {
+  const analysisResult = await analyzeChangesSafe(
+    allFiles,
+    diffs,
+    untrackedContent,
+    untrackedBytes,
+  );
+
+  if (analysisResult.isErr()) {
     spinner.stop("Analysis failed");
-    console.error(analysisResult.error);
-    process.exit(1);
+    p.log.error(pc.red(formatAIError(analysisResult.error)));
+    return;
   }
 
   const analysis = analysisResult.value;
-  spinner.stop(`Analysis complete: ${analysis.suggestedCommits} commits suggested`);
+  analysis.suggestedDays = Math.max(
+    analysis.suggestedDays,
+    getMinimumSuggestedTimelineDays(analysis.groups),
+  );
+  // Ensure spinner is stopped before any prompts or interactive operations
+  spinner.stop();
 
   // Ask for date range interactively if not provided
   let dateRange: { start: Date; end: Date };
@@ -148,29 +297,26 @@ export async function handleBackfill(input: {
 
   spinner.start("Generating commit messages...");
   const commitGroups = analysis.groups.sort((a, b) => a.order - b.order);
+  const recentMessages = (await getRecentCommits(10, cwd)).map((c) => c.message);
+
   const messages = await generateCommitMessages(
     commitGroups.map((g) => ({
-      files: allFiles.filter((f) => g.files.includes(f.path)),
+      files: g.files
+        .map((filePath) => allFiles.find((f) => f.path === filePath))
+        .filter((f): f is NonNullable<typeof f> => f !== undefined),
       category: g.category,
       name: g.name,
       description: g.description,
     })),
+    recentMessages,
   );
   spinner.stop("Commit messages generated");
 
-  const plannedCommits: PlannedCommit[] = commitGroups.map((group, index) => ({
-    id: `commit-${index}`,
-    message: messages[index] ?? `${group.category}: ${group.name}`,
-    description: group.description,
-    files: group.files
-      .map((filePath) => allFiles.find((f) => f.path === filePath))
-      .filter((f): f is NonNullable<typeof f> => f !== undefined),
-    category: group.category as PlannedCommit["category"],
-  }));
+  const plannedCommits = buildPlannedCommitsFromAnalysis(commitGroups, allFiles, messages);
 
   spinner.start("Distributing commits across date range...");
   let distributedCommits = await distributeCommits(plannedCommits, dateRange);
-  spinner.stop("Distribution complete");
+  spinner.stop();
 
   const plan: CommitPlan = {
     commits: distributedCommits,
@@ -225,7 +371,7 @@ export async function handleBackfill(input: {
       }
     }
 
-    if (action === "modify-prompt") {
+      if (action === "modify-prompt") {
       const config = await loadConfig();
       const currentPrompt = config.llm.customPrompt;
       if (currentPrompt) {
@@ -250,7 +396,8 @@ export async function handleBackfill(input: {
 
       await saveConfig({
         llm: {
-          ...config.llm,
+          selected: config.llm.selected,
+          providers: config.llm.providers,
           customPrompt: trimmedPrompt || undefined,
         },
       });
@@ -272,39 +419,46 @@ export async function handleBackfill(input: {
         process.exit(0);
       }
 
-      console.log(pc.dim("\nRegenerating commits with new prompt...\n"));
+       console.log(pc.dim("\nRe-analyzing with new prompt...\n"));
 
-      spinner.start("Regenerating commit messages...");
+       spinner.start("Re-analyzing changes with new prompt...");
+      const newAnalysisResult = await analyzeChangesSafe(allFiles, diffs, untrackedContent, untrackedBytes);
+      
+      if (newAnalysisResult.isErr()) {
+        spinner.stop("Re-analysis failed");
+        p.log.error(pc.red(formatAIError(newAnalysisResult.error)));
+        process.exit(1);
+      }
+      
+      const newAnalysis = newAnalysisResult.value;
+      const newCommitGroups = newAnalysis.groups.sort((a, b) => a.order - b.order);
+
       const newMessages = await generateCommitMessages(
-        commitGroups.map((g) => ({
-          files: allFiles.filter((f) => g.files.includes(f.path)),
+        newCommitGroups.map((g) => ({
+          files: g.files
+            .map((filePath) => allFiles.find((f) => f.path === filePath))
+            .filter((f): f is NonNullable<typeof f> => f !== undefined),
           category: g.category,
           name: g.name,
           description: g.description,
         })),
+        recentMessages,
       );
-      spinner.stop("Commit messages regenerated");
 
-      const newPlannedCommits: PlannedCommit[] = commitGroups.map((group, index) => ({
-        id: `commit-${index}`,
-        message: newMessages[index] ?? `${group.category}: ${group.name}`,
-        description: group.description,
-        files: group.files
-          .map((filePath) => allFiles.find((f) => f.path === filePath))
-          .filter((f): f is NonNullable<typeof f> => f !== undefined),
-        category: group.category as PlannedCommit["category"],
-      }));
+      spinner.stop("Re-analysis complete");
+
+      const newPlannedCommits = buildPlannedCommitsFromAnalysis(newCommitGroups, allFiles, newMessages);
 
       spinner.start("Distributing commits across date range...");
-      distributedCommits = await distributeCommits(newPlannedCommits, dateRange);
-      spinner.stop("Distribution complete");
+      const newDistributedCommits = await distributeCommits(newPlannedCommits, dateRange);
+      spinner.stop();
 
       const newPlan: CommitPlan = {
-        commits: distributedCommits,
+        commits: newDistributedCommits,
         dateRange,
         strategy: "realistic",
         totalFiles: allFiles.length,
-        estimatedDuration: `${analysis.suggestedDays} days`,
+        estimatedDuration: `${newAnalysis.suggestedDays} days`,
       };
 
       console.log(pc.bold("\n📋 Updated Commit Plan\n"));
@@ -329,7 +483,7 @@ export async function handleBackfill(input: {
       }
 
       if (newAction === "view") {
-        console.log(renderCommitList(distributedCommits));
+        console.log(renderCommitList(newDistributedCommits));
         const shouldApply = await p.confirm({
           message: "Would you like to apply these commits now?",
           initialValue: false,
@@ -339,6 +493,9 @@ export async function handleBackfill(input: {
           process.exit(0);
         }
       }
+      
+      // Update distributedCommits for the actual execution
+      distributedCommits = newDistributedCommits;
     }
   } else if (input.interactive) {
     const confirm = await p.confirm({
@@ -350,6 +507,9 @@ export async function handleBackfill(input: {
       process.exit(0);
     }
   }
+
+  let commitAuthorName: string | undefined;
+  let commitAuthorEmail: string | undefined;
 
   spinner.start("Checking git configuration...");
   const hasIdentity = await hasGitIdentity(cwd);
@@ -400,16 +560,22 @@ export async function handleBackfill(input: {
         git: { authorName, authorEmail },
       });
       spinner.stop("Git identity configured");
+      commitAuthorName = authorName;
+      commitAuthorEmail = authorEmail;
     } else {
       spinner.start("Configuring git identity from chronicle config...");
       await setGitConfig("user.name", authorName, cwd);
       await setGitConfig("user.email", authorEmail, cwd);
       spinner.stop("Git identity configured from chronicle config");
+      commitAuthorName = authorName;
+      commitAuthorEmail = authorEmail;
     }
   } else {
     spinner.stop("Git identity verified");
 
     const { name, email } = await getGitIdentity(cwd);
+    commitAuthorName = name ?? undefined;
+    commitAuthorEmail = email ?? undefined;
     if (name && email) {
       const config = await loadConfig();
       if (!config.git.authorName || !config.git.authorEmail) {
@@ -432,19 +598,41 @@ export async function handleBackfill(input: {
 
   let successfulCommits = 0;
   const skippedCommits: string[] = [];
+  let useNoVerifyForRemainingCommits = false;
+  let promptedToRetryWithoutHooks = false;
+  let fallbackCommitsCreated = 0;
+  let fallbackCommitMessages: string[] = [];
 
   for (let i = 0; i < distributedCommits.length; i++) {
     const commit = distributedCommits[i];
     if (!commit) continue;
     spinner.message(`Commit ${i + 1}/${distributedCommits.length}: ${commit.message}`);
 
-    // Unstage any previously staged files before staging this commit's files
     await unstageAll(cwd);
 
-    const filePaths = commit.files.map((f) => f.path);
-    const stagedFiles = await stageFiles(filePaths, cwd);
+    let stagedCount = 0;
+    
+    if (commit.fileHunks && commit.fileHunks.length > 0) {
+      // Use hunk indices for precise staging (more reliable than line ranges)
+      const result = await stageFileHunksByIndex(commit.fileHunks as FileHunkSpec[], diffs, cwd);
+      stagedCount = result.filesStaged.length;
 
-    if (stagedFiles.length === 0) {
+      const hunkPaths = new Set(commit.fileHunks.map((fileHunk) => fileHunk.path));
+      const remainingFullFiles = commit.files
+        .map((file) => file.path)
+        .filter((filePath) => !hunkPaths.has(filePath));
+
+      if (remainingFullFiles.length > 0) {
+        const stagedFiles = await stageFiles(remainingFullFiles, cwd);
+        stagedCount += stagedFiles.length;
+      }
+    } else {
+      const filePaths = commit.files.map((f) => f.path);
+      const stagedFiles = await stageFiles(filePaths, cwd);
+      stagedCount = stagedFiles.length;
+    }
+
+    if (stagedCount === 0) {
       skippedCommits.push(commit.message);
       continue;
     }
@@ -455,9 +643,153 @@ export async function handleBackfill(input: {
       continue;
     }
 
-    await createCommit(commit.message, commit.scheduledDate ?? new Date(), undefined, undefined, cwd);
-    successfulCommits++;
+    try {
+      await createCommit(
+        commit.message,
+        commit.scheduledDate ?? new Date(),
+        commitAuthorName,
+        commitAuthorEmail,
+        cwd,
+        useNoVerifyForRemainingCommits,
+      );
+      successfulCommits++;
+    } catch (error) {
+      const commitLabel = `Commit ${i + 1}/${distributedCommits.length}: ${commit.message}`;
+      const backupMessage = backupBranch ? `\nBackup branch: ${backupBranch}` : "";
+      const errorMessage = formatExecutionError(error);
+      const hookFailed = isGitHookError(errorMessage);
+
+      if (hookFailed && !promptedToRetryWithoutHooks) {
+        promptedToRetryWithoutHooks = true;
+        spinner.stop(`Git hooks failed after ${successfulCommits} commits`);
+
+        p.log.warn(
+          `${commitLabel}\n\nGit hooks failed while creating this backfill commit. Chronicle can retry this commit and continue the remaining generated commits without git hooks by using --no-verify.\n\n${errorMessage}${backupMessage}`,
+        );
+
+        const retryWithoutHooks = await p.confirm({
+          message: "Retry the remaining backfill without git hooks?",
+          initialValue: true,
+        });
+
+        if (!p.isCancel(retryWithoutHooks) && retryWithoutHooks) {
+          useNoVerifyForRemainingCommits = true;
+          spinner.start("Retrying commit without git hooks...");
+          spinner.message(`Commit ${i + 1}/${distributedCommits.length}: ${commit.message}`);
+
+          try {
+            await createCommit(
+              commit.message,
+              commit.scheduledDate ?? new Date(),
+              commitAuthorName,
+              commitAuthorEmail,
+              cwd,
+              true,
+            );
+            successfulCommits++;
+            continue;
+          } catch (retryError) {
+            await unstageAll(cwd).catch(() => undefined);
+            spinner.stop(`Stopped after ${successfulCommits} commits`);
+
+            telemetry.track({
+              event: "backfill_executed",
+              properties: {
+                commits_created: successfulCommits,
+                commits_skipped: skippedCommits.length,
+                total_files: allFiles.length,
+                duration_ms: timer(),
+                success: false,
+              },
+            });
+
+            p.log.error(`${commitLabel}\n\n${formatExecutionError(retryError)}${backupMessage}`);
+            return;
+          }
+        }
+      }
+
+      await unstageAll(cwd).catch(() => undefined);
+      spinner.stop(`Stopped after ${successfulCommits} commits`);
+
+      telemetry.track({
+        event: "backfill_executed",
+        properties: {
+          commits_created: successfulCommits,
+          commits_skipped: skippedCommits.length,
+          total_files: allFiles.length,
+          duration_ms: timer(),
+          success: false,
+        },
+      });
+
+      p.log.error(`${commitLabel}\n\n${errorMessage}${backupMessage}`);
+      return;
+    }
   }
+
+  let remainingChangedFiles = await getRemainingChangedFiles(cwd);
+  if (remainingChangedFiles.length > 0) {
+    spinner.message("Including remaining changes with fallback commits...");
+
+    const fallbackStartDate =
+      distributedCommits[distributedCommits.length - 1]?.scheduledDate ?? new Date();
+    const fallbackResult = await createFallbackCommitsForRemainingChanges({
+      cwd,
+      commitAuthorName,
+      commitAuthorEmail,
+      noVerify: useNoVerifyForRemainingCommits,
+      startDate: fallbackStartDate,
+    });
+
+    fallbackCommitsCreated = fallbackResult.created;
+    fallbackCommitMessages = fallbackResult.messages;
+    remainingChangedFiles = fallbackResult.remainingFiles;
+
+    if (fallbackResult.error) {
+      spinner.stop(`Stopped after ${successfulCommits + fallbackCommitsCreated} commits`);
+
+      telemetry.track({
+        event: "backfill_executed",
+        properties: {
+          commits_created: successfulCommits + fallbackCommitsCreated,
+          commits_skipped: skippedCommits.length,
+          total_files: allFiles.length,
+          duration_ms: timer(),
+          success: false,
+        },
+      });
+
+      const backupMessage = backupBranch ? `\nBackup branch: ${backupBranch}` : "";
+      p.log.error(
+        `Fallback commit failed\n\n${formatExecutionError(fallbackResult.error)}${backupMessage}`,
+      );
+      return;
+    }
+  }
+
+  if (remainingChangedFiles.length > 0) {
+    spinner.stop(`Stopped after ${successfulCommits + fallbackCommitsCreated} commits`);
+
+    telemetry.track({
+      event: "backfill_executed",
+      properties: {
+        commits_created: successfulCommits + fallbackCommitsCreated,
+        commits_skipped: skippedCommits.length,
+        total_files: allFiles.length,
+        duration_ms: timer(),
+        success: false,
+      },
+    });
+
+    const backupMessage = backupBranch ? `\nBackup branch: ${backupBranch}` : "";
+    p.log.error(
+      `Backfill completed with remaining changes\n\nChronicle attempted deterministic fallback commits, but these files still have changes: ${remainingChangedFiles.map((file) => file.path).join(", ")}${backupMessage}`,
+    );
+    return;
+  }
+
+  successfulCommits += fallbackCommitsCreated;
 
   spinner.stop("All commits processed!");
 
@@ -484,6 +816,18 @@ export async function handleBackfill(input: {
     }
   }
 
+  if (fallbackCommitMessages.length > 0) {
+    resultMessage += pc.yellow(
+      `\n\n   ⚠️  Added ${fallbackCommitMessages.length} fallback commit${fallbackCommitMessages.length === 1 ? "" : "s"} for remaining changes:`,
+    );
+    for (const msg of fallbackCommitMessages.slice(0, 3)) {
+      resultMessage += pc.dim(`\n      - ${msg}`);
+    }
+    if (fallbackCommitMessages.length > 3) {
+      resultMessage += pc.dim(`\n      ... and ${fallbackCommitMessages.length - 3} more`);
+    }
+  }
+
   const backupMessage = backupBranch ? `\n   Backup branch: ${backupBranch}` : "";
   p.outro(
     resultMessage +
@@ -493,3 +837,11 @@ export async function handleBackfill(input: {
       pc.dim(`\n\n   Note: GitHub will display commits with backdated timestamps in your contribution graph.`),
   );
 }
+
+export const __internal = {
+  buildFallbackCommitMessage,
+  getMinimumSuggestedTimelineDays,
+  dedupeChangedFiles,
+  getRemainingChangedFiles,
+  createFallbackCommitsForRemainingChanges,
+};

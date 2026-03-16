@@ -15,7 +15,8 @@
     "lint": "oxlint",
     "format": "oxfmt src",
     "prepublishOnly": "bun run build",
-    "release": "standard-version"
+    "release": "standard-version",
+    "link": "bun run build && bun link"
   },
   "keywords": [
     "git",
@@ -52,8 +53,10 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.36",
+    "@ai-sdk/devtools": "^0.0.15",
     "@ai-sdk/google": "^3.0.20",
     "@ai-sdk/openai": "^3.0.25",
+    "@ai-sdk/openai-compatible": "^2.0.30",
     "@clack/prompts": "^1.0.0",
     "@trpc/server": "^11.9.0",
     "ai": "^6.0.69",

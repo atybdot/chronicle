@@ -9,6 +9,7 @@ import {
   stageFiles,
   createCommit,
   getRecentCommits,
+  isGitHookError,
 } from "../src/lib/git";
 
 const TEST_DIR = join(import.meta.dir, ".test-repo");
@@ -90,5 +91,12 @@ describe("Git utilities", () => {
     const modifiedFile = status.unstaged.find((f) => f.path === fileName);
     expect(modifiedFile).toBeDefined();
     expect(modifiedFile?.status).toBe("modified");
+  });
+
+  test("isGitHookError detects common git hook failures", () => {
+    expect(isGitHookError("husky - pre-commit script failed (code 1)")).toBe(true);
+    expect(isGitHookError("lint-staged failed because oxfmt --write received no target")).toBe(true);
+    expect(isGitHookError("commit-msg hook declined")).toBe(true);
+    expect(isGitHookError("nothing to commit, working tree clean")).toBe(false);
   });
 });

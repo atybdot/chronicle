@@ -1,13 +1,13 @@
 import * as p from "@clack/prompts";
 import pc from "picocolors";
-import { Result } from "better-result";
 import {
   isGitRepo,
   getGitStatus,
-  getFileDiff,
+  getFileDiffFromHead,
   getFileContent,
+  getFileBytes,
 } from "../lib/git";
-import { analyzeChangesSafe, parseDateRange, formatAIError } from "../lib/ai";
+import { analyzeChangesSafe, formatAIError, parseDateRange } from "../lib/ai";
 import { telemetry } from "../lib/telemetry";
 import type { FileChange } from "../types";
 
@@ -51,21 +51,22 @@ export async function handleAnalyze(input: {
 
   if (!(await isGitRepo(cwd))) {
     p.cancel("Not a git repository");
-    process.exit(1);
+    return;
   }
 
   const spinner = p.spinner();
-  spinner.start("Analyzing repository...");
+  spinner.start("Checking for changes...");
 
   const status = await getGitStatus(cwd);
   const allFiles: FileChange[] = [];
   const diffs = new Map<string, string>();
   const untrackedContent = new Map<string, string>();
+  const untrackedBytes = new Map<string, Uint8Array>();
 
   if (input.includeStaged) {
     allFiles.push(...status.staged);
     for (const file of status.staged) {
-      const diff = await getFileDiff(file.path, true, cwd);
+      const diff = await getFileDiffFromHead(file.path, cwd);
       if (diff) diffs.set(file.path, diff);
     }
   }
@@ -78,7 +79,7 @@ export async function handleAnalyze(input: {
     }
     for (const file of status.unstaged) {
       if (!diffs.has(file.path)) {
-        const diff = await getFileDiff(file.path, false, cwd);
+        const diff = await getFileDiffFromHead(file.path, cwd);
         if (diff) diffs.set(file.path, diff);
       }
     }
@@ -87,6 +88,8 @@ export async function handleAnalyze(input: {
   if (input.includeUntracked) {
     for (const path of status.untracked) {
       allFiles.push({ path, status: "added" });
+      const bytes = await getFileBytes(path, cwd);
+      if (bytes.length > 0) untrackedBytes.set(path, bytes);
       const content = await getFileContent(path, cwd);
       if (content) untrackedContent.set(path, content);
     }
@@ -98,18 +101,28 @@ export async function handleAnalyze(input: {
     return;
   }
 
-  spinner.message(`Found ${allFiles.length} files, analyzing with AI...`);
+  const fileCount = allFiles.length;
+  const largeRepo = fileCount > 20;
+  console.log(pc.dim(`\n  Found ${fileCount} files to analyze${largeRepo ? " (large repo - this may take a minute)" : ""}`));
 
-  const analysisResult = await analyzeChangesSafe(allFiles, diffs, untrackedContent);
+  spinner.start("Analyzing changes with AI...");
 
-  if (!Result.isOk(analysisResult)) {
+  const analysisResult = await analyzeChangesSafe(
+    allFiles,
+    diffs,
+    untrackedContent,
+    untrackedBytes,
+  );
+
+  if (analysisResult.isErr()) {
     spinner.stop("Analysis failed");
-    console.error(analysisResult.error);
-    process.exit(1);
+    p.log.error(pc.red(formatAIError(analysisResult.error)));
+    return;
   }
 
   const analysis = analysisResult.value;
-  spinner.stop("Analysis complete!");
+  // Ensure spinner is stopped before any subsequent operations
+  spinner.stop();
 
   telemetry.track({
     event: "backfill_plan_generated",
@@ -127,13 +140,14 @@ export async function handleAnalyze(input: {
     const dateSpinner = p.spinner();
     dateSpinner.start("Parsing date range...");
     try {
-      dateRangeInfo = await parseDateRange(input.dateRange);
+      const parsed = await parseDateRange(input.dateRange);
+      dateRangeInfo = { start: parsed.start, end: parsed.end };
       dateSpinner.stop(
-        `${dateRangeInfo.start.toLocaleDateString()} - ${dateRangeInfo.end.toLocaleDateString()}`,
+        `${dateRangeInfo?.start.toLocaleDateString()} - ${dateRangeInfo?.end.toLocaleDateString()}`,
       );
     } catch (error) {
       dateSpinner.stop("Failed to parse date range");
-      p.log.warn(pc.yellow(`Could not parse date range: ${formatAIError(error)}`));
+      p.log.warn(pc.yellow(`Could not parse date range: ${error instanceof Error ? error.message : String(error)}`));
     }
   }
 

@@ -108,6 +108,9 @@ chronicle config init
 # Show current config
 chronicle config show
 
+# Clear all Chronicle caches
+chronicle config cache-clear
+
 # Get a value
 chronicle config get llm.provider
 
@@ -128,6 +131,14 @@ The interactive setup wizard guides you through:
    - Skip and configure later
 
 Your API key is stored locally only and is never sent to any remote server except the LLM provider you choose.
+
+#### `chronicle config cache-clear`
+
+Clear every Chronicle cache entry, including cached analyze/backfill AI responses and provider model lists.
+
+```bash
+chronicle config cache-clear
+```
 
 ## Configuration
 

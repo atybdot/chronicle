@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  distributeCommits,
   suggestDaysForCommits,
   getDistributionStats,
 } from "../src/lib/distribution";
@@ -89,5 +90,24 @@ describe("Distribution utilities", () => {
     expect(stats.byDayOfWeek["Monday"]).toBe(1);
     expect(stats.byDayOfWeek["Tuesday"]).toBe(1);
     expect(stats.byDayOfWeek["Wednesday"]).toBe(1);
+  });
+
+  test("distributeCommits spreads realistic plans across one day per commit when range is long enough", async () => {
+    const commits: PlannedCommit[] = Array.from({ length: 6 }, (_, index) => ({
+      id: `${index + 1}`,
+      message: `chore: commit ${index + 1}`,
+      files: [],
+      category: "chore",
+    }));
+
+    const distributed = await distributeCommits(
+      commits,
+      { start: new Date("2024-01-01T00:00:00Z"), end: new Date("2024-01-20T00:00:00Z") },
+      { strategy: "realistic", excludeWeekends: false, workHoursStart: 9, workHoursEnd: 18 },
+    );
+
+    const stats = getDistributionStats(distributed);
+    expect(stats.totalDays).toBe(6);
+    expect(Object.keys(stats.byDayOfWeek).length).toBeGreaterThan(3);
   });
 });

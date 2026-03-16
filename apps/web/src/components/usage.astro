@@ -3,14 +3,14 @@ import { Code } from "astro:components";
 const usage = `# Install
 npm install -g @atybdot/chronicle
 
-#usage
-chronicle [options] [command]
+# Configure a provider
+chronicle config init
 
-# Or use directly
-npx @atybdot/chronicle
+# Preview the commit plan
+chronicle analyze --date-range "last 30 days"
 
-# With date range
-chronicle backfill --date-range "30 days ago"
+# Apply it
+chronicle backfill --date-range "last 30 days" --interactive
 `;
 ---
 

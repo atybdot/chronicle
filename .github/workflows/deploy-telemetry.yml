@@ -1,0 +1,78 @@
+name: Deploy Telemetry Worker
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/telemetry/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Deploy to Cloudflare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lockb', 'apps/telemetry/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: apps/telemetry/node_modules
+          key: ${{ runner.os }}-telemetry-modules-${{ hashFiles('apps/telemetry/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-telemetry-modules-
+
+      - name: Cache Wrangler
+        uses: actions/cache@v4
+        with:
+          path: apps/telemetry/node_modules/.wrangler
+          key: ${{ runner.os }}-wrangler-cache-${{ hashFiles('apps/telemetry/wrangler.jsonc') }}
+          restore-keys: |
+            ${{ runner.os }}-wrangler-cache-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        working-directory: apps/telemetry
+
+      - name: Type check
+        run: bun run typegen
+        working-directory: apps/telemetry
+
+      - name: Run migrations
+        run: bunx wrangler d1 migrations apply chronicle-telemetry --remote
+        working-directory: apps/telemetry
+
+      - name: Deploy to Cloudflare
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
+          workingDirectory: apps/telemetry
+
+      - name: Summary
+        run: |
+          echo "## Deployed chronicle-telemetry to Cloudflare Workers" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** Production" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Changes:** Updated telemetry worker" >> $GITHUB_STEP_SUMMARY
