@@ -102,6 +102,70 @@ describe("AI structured output fallback helpers", () => {
     expect(fileGroup?.fileHunks[0]?.hunkIndices).toEqual([1]);
   });
 
+  test("normalizes assigned groups without consuming the same hunk twice", () => {
+    const normalized = __internal.normalizeAssignedAnalysisGroups(
+      [
+        {
+          name: "first",
+          description: "takes the hunk first",
+          hunkIds: ["src/a.ts:hunk-0"],
+          category: "feature",
+          order: 1,
+        },
+        {
+          name: "second",
+          description: "tries to reuse the same hunk",
+          hunkIds: ["src/a.ts:hunk-0", "src/b.ts:hunk-0"],
+          category: "feature",
+          order: 2,
+        },
+      ],
+      new Set(["src/a.ts:hunk-0", "src/b.ts:hunk-0"]),
+    );
+
+    expect(normalized.assignedHunkIds).toEqual(["src/a.ts:hunk-0", "src/b.ts:hunk-0"]);
+    expect(normalized.groups.map((group) => group.hunkIds)).toEqual([
+      ["src/a.ts:hunk-0"],
+      ["src/b.ts:hunk-0"],
+    ]);
+  });
+
+  test("appends deterministic fallback only for still-unassigned hunks after prior passes", () => {
+    const result = __internal.appendDeterministicFallbackGroups(
+      [
+        {
+          name: "assigned earlier",
+          description: "already grouped",
+          hunkIds: ["src/a.ts:hunk-0"],
+          category: "feature",
+          order: 1,
+        },
+      ],
+      [
+        {
+          id: "docs/readme.md:hunk-0",
+          path: "docs/readme.md",
+          status: "modified",
+          hunkIndex: 0,
+          newStart: 1,
+          newEnd: 3,
+          added: 2,
+          removed: 0,
+          changeType: "addition",
+          preview: "",
+          priority: 0,
+        },
+      ],
+      new Set(["src/a.ts:hunk-0"]),
+    );
+
+    expect(result.fallbackGroupCount).toBe(1);
+    expect(result.fallbackHunkCount).toBe(1);
+    expect(result.groups).toHaveLength(2);
+    expect(result.groups[1]?.category).toBe("docs");
+    expect(result.groups[1]?.hunkIds).toEqual(["docs/readme.md:hunk-0"]);
+  });
+
   test("splits groups so no more than two analyzable files share a commit", () => {
     const groups = __internal.splitAnalysisGroupsByFileLimit([
       {
