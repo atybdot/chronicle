@@ -1,5 +1,5 @@
 import { homedir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import { Result } from "better-result";
 import type { Config, LLMProvider, LLMProviderConfig } from "../types";
 import { ConfigError } from "./errors";
@@ -13,8 +13,48 @@ type ConfigUpdate = {
       : Config[K];
 };
 
-const CONFIG_DIR = process.env.CHRONICLE_CONFIG_DIR ?? join(homedir(), ".config", "chronicle");
-const CONFIG_FILE = join(CONFIG_DIR, "config.json");
+const DEFAULT_CONFIG_DIR = join(homedir(), ".config", "chronicle");
+const LEGACY_CONFIG_DIR = join(homedir(), ".chronicle");
+
+function expandHomePath(pathValue: string): string {
+  if (pathValue === "~") {
+    return homedir();
+  }
+
+  if (pathValue.startsWith("~/")) {
+    return join(homedir(), pathValue.slice(2));
+  }
+
+  return pathValue;
+}
+
+function getPreferredConfigDir(): string {
+  const configuredPath = process.env.CHRONICLE_CONFIG_DIR;
+  if (!configuredPath) {
+    return DEFAULT_CONFIG_DIR;
+  }
+
+  const expandedPath = expandHomePath(configuredPath);
+  return expandedPath.endsWith(".json") ? dirname(expandedPath) : expandedPath;
+}
+
+function getConfigFile(dir: string): string {
+  return join(dir, "config.json");
+}
+
+function getPreferredConfigFile(): string {
+  const configuredPath = process.env.CHRONICLE_CONFIG_DIR;
+  if (!configuredPath) {
+    return getConfigFile(getPreferredConfigDir());
+  }
+
+  const expandedPath = expandHomePath(configuredPath);
+  return expandedPath.endsWith(".json") ? expandedPath : getConfigFile(expandedPath);
+}
+
+function getLegacyConfigFile(): string {
+  return getConfigFile(LEGACY_CONFIG_DIR);
+}
 
 const DEFAULT_CONFIG: Config = {
   llm: {
@@ -43,10 +83,35 @@ const DEFAULT_CONFIG: Config = {
  */
 async function ensureConfigDir(): Promise<void> {
   try {
-    await Bun.write(join(CONFIG_DIR, ".keep"), "");
+    await Bun.write(join(getPreferredConfigDir(), ".keep"), "");
   } catch {
     // Directory might already exist, that's fine
   }
+}
+
+async function readExistingConfigFile(): Promise<{ path: string; content: unknown } | null> {
+  const xdgConfigDir = process.env.XDG_CONFIG_HOME
+    ? join(expandHomePath(process.env.XDG_CONFIG_HOME), "chronicle")
+    : null;
+  const candidates = [
+    getPreferredConfigFile(),
+    xdgConfigDir ? getConfigFile(xdgConfigDir) : null,
+    getConfigFile(DEFAULT_CONFIG_DIR),
+    getLegacyConfigFile(),
+  ].filter((value): value is string => Boolean(value));
+
+  for (const configFile of candidates) {
+    try {
+      const file = Bun.file(configFile);
+      if (await file.exists()) {
+        return { path: configFile, content: await file.json() };
+      }
+    } catch {
+      // Try the next location
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -54,11 +119,13 @@ async function ensureConfigDir(): Promise<void> {
  */
 export async function loadConfig(): Promise<Config> {
   try {
-    const file = Bun.file(CONFIG_FILE);
-    if (await file.exists()) {
-      const content = await file.json();
+    const existing = await readExistingConfigFile();
+    if (existing) {
+      const content = existing.content;
       const normalizedConfig = normalizeConfig(deepMerge(DEFAULT_CONFIG, content as Partial<Config>));
       if (hasLegacyLlmConfig(content)) {
+        await persistMigratedConfig(normalizedConfig);
+      } else if (existing.path !== getPreferredConfigFile()) {
         await persistMigratedConfig(normalizedConfig);
       }
       return normalizedConfig;
@@ -75,11 +142,13 @@ export async function loadConfig(): Promise<Config> {
 export async function loadConfigSafe(): Promise<Result<Config, ConfigError>> {
   return Result.tryPromise({
     try: async () => {
-      const file = Bun.file(CONFIG_FILE);
-      if (await file.exists()) {
-        const content = await file.json();
+      const existing = await readExistingConfigFile();
+      if (existing) {
+        const content = existing.content;
         const normalizedConfig = normalizeConfig(deepMerge(DEFAULT_CONFIG, content as Partial<Config>));
         if (hasLegacyLlmConfig(content)) {
+          await persistMigratedConfig(normalizedConfig);
+        } else if (existing.path !== getPreferredConfigFile()) {
           await persistMigratedConfig(normalizedConfig);
         }
         return normalizedConfig;
@@ -88,7 +157,7 @@ export async function loadConfigSafe(): Promise<Result<Config, ConfigError>> {
     },
     catch: (e) =>
       new ConfigError({
-        path: CONFIG_FILE,
+        path: getPreferredConfigFile(),
         message: `Failed to load config: ${e instanceof Error ? e.message : String(e)}`,
       }),
   });
@@ -101,7 +170,7 @@ export async function saveConfig(config: ConfigUpdate): Promise<void> {
   await ensureConfigDir();
   const currentConfig = await loadConfig();
   const newConfig = normalizeConfig(deepMerge(currentConfig, config));
-  await Bun.write(CONFIG_FILE, JSON.stringify(newConfig, null, 2));
+  await Bun.write(getPreferredConfigFile(), JSON.stringify(newConfig, null, 2));
 
   if (didSelectedLlmChange(currentConfig, newConfig)) {
     await clearCache(CacheNamespaces.AI_RESPONSES);
@@ -117,17 +186,17 @@ export async function saveConfigSafe(config: ConfigUpdate): Promise<Result<void,
       await ensureConfigDir();
       const currentConfig = await loadConfig();
       const newConfig = normalizeConfig(deepMerge(currentConfig, config));
-      await Bun.write(CONFIG_FILE, JSON.stringify(newConfig, null, 2));
+      await Bun.write(getPreferredConfigFile(), JSON.stringify(newConfig, null, 2));
 
       if (didSelectedLlmChange(currentConfig, newConfig)) {
         await clearCache(CacheNamespaces.AI_RESPONSES);
       }
     },
-    catch: (e) =>
-      new ConfigError({
-        path: CONFIG_FILE,
-        message: `Failed to save config: ${e instanceof Error ? e.message : String(e)}`,
-      }),
+      catch: (e) =>
+        new ConfigError({
+          path: getPreferredConfigFile(),
+          message: `Failed to save config: ${e instanceof Error ? e.message : String(e)}`,
+        }),
   });
 }
 
@@ -337,19 +406,19 @@ function hasLegacyLlmConfig(rawConfig: unknown): boolean {
 
 async function persistMigratedConfig(config: Config): Promise<void> {
   await ensureConfigDir();
-  await Bun.write(CONFIG_FILE, JSON.stringify(config, null, 2));
+  await Bun.write(getPreferredConfigFile(), JSON.stringify(config, null, 2));
 }
 
 /**
  * Get config file path (for display purposes)
  */
 export function getConfigPath(): string {
-  return CONFIG_FILE;
+  return getPreferredConfigFile();
 }
 
 /**
  * Get config directory path
  */
 export function getConfigDir(): string {
-  return CONFIG_DIR;
+  return getPreferredConfigDir();
 }
