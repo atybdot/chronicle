@@ -1,6 +1,6 @@
 {
   "name": "cimmit-monorepo",
-  "version": "0.1.0",
+  "version": "1.2.0",
   "description": "Monorepo for Chronicle CLI tool",
   "private": true,
   "packageManager": "bun@1.2.0",

@@ -4,7 +4,7 @@ import { homedir, platform } from "os";
 import { join } from "path";
 import { Result } from "better-result";
 import { TelemetryPersistError, TelemetryFlushError } from "./errors";
-
+import pkgInfo from '../../package.json'
 // ============================================================================
 // Configuration
 // ============================================================================
@@ -14,7 +14,7 @@ const TELEMETRY_DIR = join(homedir(), ".config", "chronicle");
 const TELEMETRY_FILE = join(TELEMETRY_DIR, "telemetry.json");
 const EVENTS_FILE = join(TELEMETRY_DIR, "telemetry-events.jsonl");
 const TELEMETRY_ENV_VAR = "CHRONICLE_TELEMETRY";
-const CLI_VERSION = "0.1.0";
+const CLI_VERSION = pkgInfo.version
 const MAX_PENDING_EVENTS = 1000;
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
