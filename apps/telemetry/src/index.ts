@@ -71,10 +71,10 @@ app.get(
     }
   },
   async (c) => {
-    const rawDays = c.req.query("days") || "7";
-    const parsedDays = Number.parseInt(rawDays, 10);
-    const days = Number.isFinite(parsedDays) && parsedDays > 0 ? Math.min(parsedDays, 365) : 7;
-    const cacheKey = `cache:stats:days:${days}`;
+    const rawDays = c.req.query("days");
+    const parsedDays = rawDays ? Number.parseInt(rawDays, 10) : NaN;
+    const days = Number.isFinite(parsedDays) && parsedDays > 0 ? Math.min(parsedDays, 365) : undefined;
+    const cacheKey = days ? `cache:stats:days:${days}` : "cache:stats:all";
 
     if (c.env.RATE_LIMIT_KV) {
       try {
@@ -149,10 +149,168 @@ export interface StatsData {
   model_categories: Record<string, number>;
 }
 
-async function getStats(db: Database, days: number): Promise<StatsData> {
-  const since = new Date();
-  since.setDate(since.getDate() - days);
-  const sinceStr = since.toISOString();
+async function getStats(db: Database, days?: number): Promise<StatsData> {
+  const statsDateExpr = sql<string>`date(${events.receivedAt})`;
+  const sinceDateExpr = days
+    ? sql<string>`date(${new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()})`
+    : null;
+
+  const uniqueUsersQuery = db.select({ count: countDistinct(events.anonymousId) }).from(events);
+  const backfillEventsQuery = db.select({ eventName: events.eventName, properties: events.properties }).from(events);
+  const aiRequestsQuery = db.select({ properties: events.properties }).from(events);
+  const activityQuery = db.select({ date: statsDateExpr, eventName: events.eventName, properties: events.properties }).from(events);
+  const commandsQuery = db.select({ properties: events.properties }).from(events);
+  const dateRangesQuery = db.select({ properties: events.properties }).from(events);
+  const modelCategoriesQuery = db.select({ properties: events.properties }).from(events);
+
+  const uniqueUsersPromise = sinceDateExpr
+    ? uniqueUsersQuery.where(gte(statsDateExpr, sinceDateExpr)).then((rows) => rows[0]?.count ?? 0)
+    : uniqueUsersQuery.then((rows) => rows[0]?.count ?? 0);
+
+  const backfillStatsPromise = (async () => {
+    const rows = sinceDateExpr
+      ? await backfillEventsQuery.where(
+          and(
+            gte(statsDateExpr, sinceDateExpr),
+            sql`${events.eventName} in ('backfill_executed', 'backfill_plan_generated')`,
+          ),
+        )
+      : await backfillEventsQuery.where(sql`${events.eventName} in ('backfill_executed', 'backfill_plan_generated')`);
+
+    const executedRows = rows.filter((row) => row.eventName === "backfill_executed");
+    const planRows = rows.filter((row) => row.eventName === "backfill_plan_generated");
+    const usePlanStats = executedRows.length === 0 && planRows.length > 0;
+    const sourceRows = usePlanStats ? planRows : executedRows;
+
+    let totalCommits = 0;
+    let totalFiles = 0;
+    let successCount = 0;
+
+    for (const row of sourceRows) {
+      try {
+        const props = JSON.parse(row.properties);
+        if (usePlanStats) {
+          totalCommits += props.commits_suggested ?? 0;
+          totalFiles += props.files_count ?? 0;
+        } else {
+          totalCommits += props.commits_created ?? 0;
+          totalFiles += props.total_files ?? 0;
+          if (props.success) successCount++;
+        }
+      } catch {}
+    }
+
+    return {
+      total_backfills: sourceRows.length,
+      total_commits: totalCommits,
+      total_files: totalFiles,
+      success_rate: sourceRows.length > 0 && !usePlanStats ? Math.round((successCount / sourceRows.length) * 100) : 0,
+    };
+  })();
+
+  const aiProviderStatsPromise = (async () => {
+    const rows = sinceDateExpr
+      ? await aiRequestsQuery.where(and(gte(statsDateExpr, sinceDateExpr), sql`${events.eventName} = 'ai_request_made'`))
+      : await aiRequestsQuery.where(sql`${events.eventName} = 'ai_request_made'`);
+
+    const providers: Record<string, number> = {};
+    let cacheHits = 0;
+
+    for (const row of rows) {
+      try {
+        const props = JSON.parse(row.properties);
+        const provider = props.provider ?? "unknown";
+        providers[provider] = (providers[provider] ?? 0) + 1;
+        if (props.cache_hit) cacheHits++;
+      } catch {}
+    }
+
+    return {
+      by_provider: providers,
+      total_requests: rows.length,
+      cache_hit_rate: rows.length > 0 ? Math.round((cacheHits / rows.length) * 100) : 0,
+    };
+  })();
+
+  const activityByDayPromise = (async () => {
+    const rows = sinceDateExpr
+      ? await activityQuery.where(and(gte(statsDateExpr, sinceDateExpr), sql`${events.eventName} in ('backfill_executed', 'backfill_plan_generated')`))
+      : await activityQuery.where(sql`${events.eventName} in ('backfill_executed', 'backfill_plan_generated')`);
+
+    const byDay: Record<string, { backfills: number; commits: number }> = {};
+
+    for (const row of rows) {
+      const date = row.date;
+      if (!byDay[date]) byDay[date] = { backfills: 0, commits: 0 };
+      byDay[date].backfills++;
+
+      try {
+        const props = JSON.parse(row.properties);
+        byDay[date].commits += row.eventName === "backfill_plan_generated" ? (props.commits_suggested ?? 0) : (props.commits_created ?? 0);
+      } catch {}
+    }
+
+    return Object.entries(byDay)
+      .map(([date, data]) => ({ date, ...data }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  })();
+
+  const commandStatsPromise = (async () => {
+    const rows = sinceDateExpr
+      ? await commandsQuery.where(and(gte(statsDateExpr, sinceDateExpr), sql`${events.eventName} = 'command_invoked'`))
+      : await commandsQuery.where(sql`${events.eventName} = 'command_invoked'`);
+
+    const commands: Record<string, number> = {};
+    for (const row of rows) {
+      try {
+        const props = JSON.parse(row.properties);
+        const cmd = props.command ?? "unknown";
+        if (cmd !== "help") commands[cmd] = (commands[cmd] ?? 0) + 1;
+      } catch {}
+    }
+    return commands;
+  })();
+
+  const dateRangeStatsPromise = (async () => {
+    const rows = sinceDateExpr
+      ? await dateRangesQuery.where(and(gte(statsDateExpr, sinceDateExpr), sql`${events.eventName} = 'backfill_plan_generated'`))
+      : await dateRangesQuery.where(sql`${events.eventName} = 'backfill_plan_generated'`);
+
+    const ranges: Record<string, number> = {};
+    for (const row of rows) {
+      try {
+        const props = JSON.parse(row.properties);
+        const rangeDays = props.date_range_days;
+        if (rangeDays !== undefined) {
+          let rangeLabel: string;
+          if (rangeDays <= 7) rangeLabel = "1-7 days";
+          else if (rangeDays <= 14) rangeLabel = "8-14 days";
+          else if (rangeDays <= 30) rangeLabel = "15-30 days";
+          else if (rangeDays <= 60) rangeLabel = "31-60 days";
+          else if (rangeDays <= 90) rangeLabel = "61-90 days";
+          else rangeLabel = "90+ days";
+          ranges[rangeLabel] = (ranges[rangeLabel] ?? 0) + 1;
+        }
+      } catch {}
+    }
+    return ranges;
+  })();
+
+  const modelCategoryStatsPromise = (async () => {
+    const rows = sinceDateExpr
+      ? await modelCategoriesQuery.where(and(gte(statsDateExpr, sinceDateExpr), sql`${events.eventName} = 'ai_request_made'`))
+      : await modelCategoriesQuery.where(sql`${events.eventName} = 'ai_request_made'`);
+
+    const categories: Record<string, number> = {};
+    for (const row of rows) {
+      try {
+        const props = JSON.parse(row.properties);
+        const category = props.model_category ?? "unknown";
+        categories[category] = (categories[category] ?? 0) + 1;
+      } catch {}
+    }
+    return categories;
+  })();
 
   const [
     uniqueUsers,
@@ -163,155 +321,13 @@ async function getStats(db: Database, days: number): Promise<StatsData> {
     dateRangeStats,
     modelCategoryStats,
   ] = await Promise.all([
-    db
-      .select({ count: countDistinct(events.anonymousId) })
-      .from(events)
-      .where(gte(events.timestamp, sinceStr))
-      .then((r) => r[0]?.count ?? 0),
-
-    db
-      .select({ properties: events.properties })
-      .from(events)
-      .where(and(gte(events.timestamp, sinceStr), sql`${events.eventName} = 'backfill_executed'`))
-      .then((rows) => {
-        let totalCommits = 0;
-        let totalFiles = 0;
-        let successCount = 0;
-        let totalBackfills = rows.length;
-
-        for (const row of rows) {
-          try {
-            const props = JSON.parse(row.properties);
-            totalCommits += props.commits_created ?? 0;
-            totalFiles += props.total_files ?? 0;
-            if (props.success) successCount++;
-          } catch {}
-        }
-
-        return {
-          total_backfills: totalBackfills,
-          total_commits: totalCommits,
-          total_files: totalFiles,
-          success_rate: totalBackfills > 0 ? Math.round((successCount / totalBackfills) * 100) : 0,
-        };
-      }),
-
-    db
-      .select({ properties: events.properties })
-      .from(events)
-      .where(and(gte(events.timestamp, sinceStr), sql`${events.eventName} = 'ai_request_made'`))
-      .then((rows) => {
-        const providers: Record<string, number> = {};
-        let cacheHits = 0;
-        let totalRequests = rows.length;
-
-        for (const row of rows) {
-          try {
-            const props = JSON.parse(row.properties);
-            const provider = props.provider ?? "unknown";
-            providers[provider] = (providers[provider] ?? 0) + 1;
-            if (props.cache_hit) cacheHits++;
-          } catch {}
-        }
-
-        return {
-          by_provider: providers,
-          total_requests: totalRequests,
-          cache_hit_rate: totalRequests > 0 ? Math.round((cacheHits / totalRequests) * 100) : 0,
-        };
-      }),
-
-    db
-      .select({
-        date: sql<string>`date(${events.timestamp})`,
-        properties: events.properties,
-      })
-      .from(events)
-      .where(and(gte(events.timestamp, sinceStr), sql`${events.eventName} = 'backfill_executed'`))
-      .orderBy(sql`date(${events.timestamp})`)
-      .then((rows) => {
-        const byDay: Record<string, { backfills: number; commits: number }> = {};
-
-        for (const row of rows) {
-          const date = row.date;
-          if (!byDay[date]) byDay[date] = { backfills: 0, commits: 0 };
-          byDay[date].backfills++;
-
-          try {
-            const props = JSON.parse(row.properties);
-            byDay[date].commits += props.commits_created ?? 0;
-          } catch {}
-        }
-
-        return Object.entries(byDay)
-          .map(([date, data]) => ({ date, ...data }))
-          .sort((a, b) => a.date.localeCompare(b.date));
-      }),
-
-    db
-      .select({ properties: events.properties })
-      .from(events)
-      .where(and(gte(events.timestamp, sinceStr), sql`${events.eventName} = 'command_invoked'`))
-      .then((rows) => {
-        const commands: Record<string, number> = {};
-
-        for (const row of rows) {
-          try {
-            const props = JSON.parse(row.properties);
-            const cmd = props.command ?? "unknown";
-            if (cmd !== "help") {
-              commands[cmd] = (commands[cmd] ?? 0) + 1;
-            }
-          } catch {}
-        }
-
-        return commands;
-      }),
-
-    db
-      .select({ properties: events.properties })
-      .from(events)
-      .where(and(gte(events.timestamp, sinceStr), sql`${events.eventName} = 'backfill_plan_generated'`))
-      .then((rows) => {
-        const ranges: Record<string, number> = {};
-
-        for (const row of rows) {
-          try {
-            const props = JSON.parse(row.properties);
-            const days = props.date_range_days;
-            if (days !== undefined) {
-              let rangeLabel: string;
-              if (days <= 7) rangeLabel = "1-7 days";
-              else if (days <= 14) rangeLabel = "8-14 days";
-              else if (days <= 30) rangeLabel = "15-30 days";
-              else if (days <= 60) rangeLabel = "31-60 days";
-              else if (days <= 90) rangeLabel = "61-90 days";
-              else rangeLabel = "90+ days";
-              ranges[rangeLabel] = (ranges[rangeLabel] ?? 0) + 1;
-            }
-          } catch {}
-        }
-
-        return ranges;
-      }),
-
-    db
-      .select({ properties: events.properties })
-      .from(events)
-      .where(and(gte(events.timestamp, sinceStr), sql`${events.eventName} = 'ai_request_made'`))
-      .then((rows) => {
-        const categories: Record<string, number> = {};
-
-        for (const row of rows) {
-          try {
-            const props = JSON.parse(row.properties);
-            const category = props.model_category ?? "unknown";
-            categories[category] = (categories[category] ?? 0) + 1;
-          } catch {}
-        }
-
-        return categories;
-      }),
+    uniqueUsersPromise,
+    backfillStatsPromise,
+    aiProviderStatsPromise,
+    activityByDayPromise,
+    commandStatsPromise,
+    dateRangeStatsPromise,
+    modelCategoryStatsPromise,
   ]);
 
   return {

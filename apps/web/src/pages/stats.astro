@@ -7,21 +7,45 @@ import type { StatsData } from "@/types/stats";
 
 const pageTitle = "Usage Stats — chronicle";
 const pageDescription = "Public telemetry statistics for chronicle CLI usage.";
-const pageKeywords = "chronicle stats, telemetry, usage statistics, CLI analytics";
+const pageKeywords =
+  "chronicle stats, telemetry, usage statistics, CLI analytics";
 
 export const prerender = false;
 
-const TELEMETRY_API = import.meta.env.TELEMETRY_API_URL || "https://chronicle-telemetry.atybdot.workers.dev";
+const DEFAULT_TELEMETRY_API = import.meta.env.TELEMETRY_API_URL;
+const LOCAL_TELEMETRY_API = "http://localhost:8787";
+const configuredTelemetryApi = import.meta.env.TELEMETRY_API_URL;
 
-let stats: StatsData;
-try {
-  const response = await fetch(`${TELEMETRY_API}/v1/stats?days=7`, {
-    signal: AbortSignal.timeout(5000),
-  });
-  stats = await response.json();
-} catch (error) {
-  console.error("Failed to fetch stats:", error);
-  stats = {
+function getTelemetryApis() {
+  if (import.meta.env.DEV) {
+    return [
+      configuredTelemetryApi,
+      LOCAL_TELEMETRY_API,
+      DEFAULT_TELEMETRY_API,
+    ].filter((value): value is string => Boolean(value));
+  }
+
+  return [DEFAULT_TELEMETRY_API, configuredTelemetryApi].filter(
+    (value): value is string => Boolean(value) && value !== LOCAL_TELEMETRY_API,
+  );
+}
+
+async function fetchStats(): Promise<StatsData> {
+  for (const api of getTelemetryApis()) {
+    try {
+      const response = await fetch(`${api}/v1/stats`, {
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (!response.ok) continue;
+
+      return await response.json();
+    } catch (error) {
+      console.error(`Failed to fetch stats from ${api}:`, error);
+    }
+  }
+
+  return {
     unique_users: 0,
     total_commits: 0,
     total_files: 0,
@@ -34,6 +58,8 @@ try {
     model_categories: {},
   };
 }
+
+const stats = await fetchStats();
 ---
 
 <IndexLayout
@@ -57,7 +83,7 @@ try {
 
     <section class="pb-8">
       <ErrorBoundary client:load>
-        <StatsDashboard stats={stats} days={7} client:load />
+        <StatsDashboard stats={stats} client:load />
       </ErrorBoundary>
     </section>
   </div>

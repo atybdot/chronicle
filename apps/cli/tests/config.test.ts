@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm } from "fs/promises";
+import { homedir } from "os";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -24,6 +25,72 @@ async function withTempHome<T>(run: (home: string) => Promise<T>): Promise<T> {
 }
 
 describe("config migration and multi-provider persistence", () => {
+  test("expands tilde in CHRONICLE_CONFIG_DIR", async () => {
+    const previousConfigDir = process.env.CHRONICLE_CONFIG_DIR;
+    process.env.CHRONICLE_CONFIG_DIR = "~/.config/chronicle-test";
+
+    try {
+      const configModule = await import(`../src/lib/config.ts?tilde=${Date.now()}-${Math.random()}`);
+      expect(configModule.getConfigDir()).toBe(join(homedir(), ".config", "chronicle-test"));
+      expect(configModule.getConfigPath()).toBe(join(homedir(), ".config", "chronicle-test", "config.json"));
+    } finally {
+      process.env.CHRONICLE_CONFIG_DIR = previousConfigDir;
+    }
+  });
+
+  test("supports CHRONICLE_CONFIG_DIR as full json file path", async () => {
+    const previousConfigDir = process.env.CHRONICLE_CONFIG_DIR;
+    process.env.CHRONICLE_CONFIG_DIR = "~/.config/chronicle/config.json";
+
+    try {
+      const configModule = await import(`../src/lib/config.ts?fullpath=${Date.now()}-${Math.random()}`);
+      expect(configModule.getConfigDir()).toBe(join(homedir(), ".config", "chronicle"));
+      expect(configModule.getConfigPath()).toBe(join(homedir(), ".config", "chronicle", "config.json"));
+    } finally {
+      process.env.CHRONICLE_CONFIG_DIR = previousConfigDir;
+    }
+  });
+
+  test("does not clear source config file during migration", async () => {
+    const home = await mkdtemp(join(tmpdir(), "chronicle-config-migrate-"));
+    const sourceDir = join(home, ".config", "chronicle");
+    const sourcePath = join(sourceDir, "config.json");
+    const targetDir = join(home, ".config", "chronicle-target");
+    const previousConfigDir = process.env.CHRONICLE_CONFIG_DIR;
+    const previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
+
+    process.env.CHRONICLE_CONFIG_DIR = targetDir;
+    process.env.XDG_CONFIG_HOME = join(home, ".config");
+
+    try {
+      await mkdir(sourceDir, { recursive: true });
+      const sourceConfig = {
+        llm: {
+          selected: { provider: "openrouter", model: "anthropic/claude-sonnet-4" },
+          providers: [{ name: "openrouter", API_TOKEN: "token", model: "anthropic/claude-sonnet-4" }],
+        },
+        git: {},
+        defaults: {},
+      };
+
+      await Bun.write(sourcePath, JSON.stringify(sourceConfig, null, 2));
+
+      const configModule = await import(`../src/lib/config.ts?preserve=${Date.now()}-${Math.random()}`);
+      await configModule.loadConfig();
+
+      const sourceAfter = await Bun.file(sourcePath).json();
+      expect(sourceAfter).toMatchObject(sourceConfig);
+
+      const targetPath = join(targetDir, "config.json");
+      const targetAfter = await Bun.file(targetPath).json();
+      expect(targetAfter).toMatchObject(sourceConfig);
+    } finally {
+      process.env.CHRONICLE_CONFIG_DIR = previousConfigDir;
+      process.env.XDG_CONFIG_HOME = previousXdgConfigHome;
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   test("migrates legacy single-provider config into providers array", async () => {
     await withTempHome(async (home) => {
       const configDir = join(home, ".config", "chronicle");

@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.2.1](https://github.com/atybdot/chronicle/compare/v1.2.0...v1.2.1) (2026-03-23)
+
+
+### Bug Fixes
+
+* resolve cache handling bug that caused stale entries ([54f5a08](https://github.com/atybdot/chronicle/commit/54f5a08c036fe0324d6c56eadc35300d5b97d512))
+
 ### 0.1.1 (2026-02-19)
 
 

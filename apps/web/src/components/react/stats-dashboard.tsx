@@ -116,10 +116,9 @@ function ChartCard({
 
 interface StatsDashboardProps {
   stats: StatsData;
-  days: number;
 }
 
-export default function StatsDashboard({ stats, days: _days }: StatsDashboardProps) {
+export default function StatsDashboard({ stats }: StatsDashboardProps) {
   // Transform AI provider data
   const providerData = Object.entries(stats.ai_providers || {}).map(([name, value]) => ({
     name,
