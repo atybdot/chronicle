@@ -60,6 +60,9 @@ jobs:
       - name: Run migrations
         run: bunx wrangler d1 migrations apply chronicle-telemetry --remote
         working-directory: apps/telemetry
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy to Cloudflare
         uses: cloudflare/wrangler-action@v3

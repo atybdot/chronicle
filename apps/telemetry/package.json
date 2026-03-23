@@ -8,7 +8,8 @@
     "typegen": "wrangler types --env-interface CloudflareBindings",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "wrangler d1 migrations apply chronicle-telemetry --remote",
-    "db:migrate:local": "wrangler d1 migrations apply chronicle-telemetry --local"
+    "db:migrate:local": "wrangler d1 migrations apply chronicle-telemetry --local",
+    "db:seed": "node ./scripts/seed.js"
   },
   "dependencies": {
     "@hono-rate-limiter/cloudflare": "^0.2.2",
@@ -21,6 +22,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260213.0",
+    "@faker-js/faker": "^9.8.0",
     "dotenv": "^17.3.1",
     "drizzle-kit": "^0.31.9",
     "wrangler": "^4.65.0"
