@@ -135,6 +135,71 @@ describe("FileAnalyzer", () => {
       expect(summaries[0]?.semanticLabels).toContain("deletion");
       expect(summaries[0]?.semanticLabels).toContain("modification");
     });
+
+    test("generates content-based IDs (cross-run stability)", () => {
+      const files: FileChange[] = [
+        { path: "src/index.ts", status: "modified" },
+      ];
+      
+      // Same content, different line positions
+      const diffs1 = new Map<string, string>();
+      diffs1.set("src/index.ts", "@@ -1,3 +1,4 @@\n line1\n+new line\n line2\n line3");
+      
+      const diffs2 = new Map<string, string>();
+      diffs2.set("src/index.ts", "@@ -10,3 +10,4 @@\n line1\n+new line\n line2\n line3");
+
+      const classifications = new Map<string, { path: string; kind: "analyzable" | "asset"; reason: string }>();
+      classifications.set("src/index.ts", { path: "src/index.ts", kind: "analyzable", reason: "test" });
+
+      const { hunks: hunks1 } = extractHunksFromChanges(files, diffs1, classifications);
+      const { hunks: hunks2 } = extractHunksFromChanges(files, diffs2, classifications);
+
+      // Same diff content at different positions should produce same ID
+      expect(hunks1[0]?.id).toBe(hunks2[0]?.id);
+    });
+
+    test("different content produces different IDs", () => {
+      const files: FileChange[] = [
+        { path: "src/index.ts", status: "modified" },
+      ];
+      
+      const diffs1 = new Map<string, string>();
+      diffs1.set("src/index.ts", "@@ -1,3 +1,4 @@\n line1\n+new line A\n line2\n line3");
+      
+      const diffs2 = new Map<string, string>();
+      diffs2.set("src/index.ts", "@@ -1,3 +1,4 @@\n line1\n+new line B\n line2\n line3");
+
+      const classifications = new Map<string, { path: string; kind: "analyzable" | "asset"; reason: string }>();
+      classifications.set("src/index.ts", { path: "src/index.ts", kind: "analyzable", reason: "test" });
+
+      const { hunks: hunks1 } = extractHunksFromChanges(files, diffs1, classifications);
+      const { hunks: hunks2 } = extractHunksFromChanges(files, diffs2, classifications);
+
+      // Different content should produce different IDs
+      expect(hunks1[0]?.id).not.toBe(hunks2[0]?.id);
+    });
+
+    test("hash excludes @@ header line", () => {
+      const files: FileChange[] = [
+        { path: "src/index.ts", status: "modified" },
+      ];
+      
+      // Same diff content but different @@ headers
+      const diffs1 = new Map<string, string>();
+      diffs1.set("src/index.ts", "@@ -1,3 +1,4 @@\n line1\n+new line\n line2\n line3");
+      
+      const diffs2 = new Map<string, string>();
+      diffs2.set("src/index.ts", "@@ -5,3 +5,4 @@\n line1\n+new line\n line2\n line3");
+
+      const classifications = new Map<string, { path: string; kind: "analyzable" | "asset"; reason: string }>();
+      classifications.set("src/index.ts", { path: "src/index.ts", kind: "analyzable", reason: "test" });
+
+      const { hunks: hunks1 } = extractHunksFromChanges(files, diffs1, classifications);
+      const { hunks: hunks2 } = extractHunksFromChanges(files, diffs2, classifications);
+
+      // Hash should only include diff content, not @@ header
+      expect(hunks1[0]?.id).toBe(hunks2[0]?.id);
+    });
   });
 
   describe("getHunkDetails", () => {

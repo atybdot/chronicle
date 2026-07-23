@@ -509,4 +509,77 @@ describe("config schema extension - agent roles and intent", () => {
       });
     });
   });
+
+  test("agentRoles validation rejects empty config per role", async () => {
+    const { ConfigSchema } = await import(`../src/types/index.ts?validation=${Date.now()}-${Math.random()}`);
+    
+    // Empty config should fail validation
+    const result = ConfigSchema.safeParse({
+      llm: {
+        selected: { provider: "openrouter" },
+        providers: [],
+        agentRoles: {
+          orchestrator: {},
+        },
+      },
+      git: {},
+      defaults: {},
+    });
+    
+    expect(result.success).toBe(false);
+  });
+
+  test("agentRoles validation accepts model-only config", async () => {
+    const { ConfigSchema } = await import(`../src/types/index.ts?model-only=${Date.now()}-${Math.random()}`);
+    
+    const result = ConfigSchema.safeParse({
+      llm: {
+        selected: { provider: "openrouter" },
+        providers: [],
+        agentRoles: {
+          orchestrator: { model: "gpt-4" },
+        },
+      },
+      git: {},
+      defaults: {},
+    });
+    
+    expect(result.success).toBe(true);
+  });
+
+  test("agentRoles validation accepts provider-only config", async () => {
+    const { ConfigSchema } = await import(`../src/types/index.ts?provider-only=${Date.now()}-${Math.random()}`);
+    
+    const result = ConfigSchema.safeParse({
+      llm: {
+        selected: { provider: "openrouter" },
+        providers: [],
+        agentRoles: {
+          orchestrator: { provider: "openrouter" },
+        },
+      },
+      git: {},
+      defaults: {},
+    });
+    
+    expect(result.success).toBe(true);
+  });
+
+  test("agentRoles validation accepts both model and provider", async () => {
+    const { ConfigSchema } = await import(`../src/types/index.ts?both=${Date.now()}-${Math.random()}`);
+    
+    const result = ConfigSchema.safeParse({
+      llm: {
+        selected: { provider: "openrouter" },
+        providers: [],
+        agentRoles: {
+          orchestrator: { model: "gpt-4", provider: "openrouter" },
+        },
+      },
+      git: {},
+      defaults: {},
+    });
+    
+    expect(result.success).toBe(true);
+  });
 });

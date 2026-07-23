@@ -15,6 +15,14 @@ type GetHunksDetailResult = {
   hunks: HunkDetail[];
 };
 
+type HunkState = {
+  newStart: number;
+  newEnd: number;
+  addedLines: number;
+  removedLines: number;
+  contentLines: string[];
+};
+
 const ASSET_EXTENSIONS = new Set([
   ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg",
   ".woff", ".woff2", ".ttf", ".eot",
@@ -42,13 +50,7 @@ function isAssetFile(path: string): boolean {
 }
 
 function createHunkFromState(
-  state: {
-    newStart: number;
-    newEnd: number;
-    addedLines: number;
-    removedLines: number;
-    contentLines: string[];
-  },
+  state: HunkState,
   filePath: string,
   status: FileChange["status"],
   hunkIndex: number,
@@ -78,13 +80,7 @@ function extractHunksFromFile(
 ): Hunk[] {
   const hunks: Hunk[] = [];
   const lines = diff.split("\n");
-  let currentHunk: {
-    newStart: number;
-    newEnd: number;
-    addedLines: number;
-    removedLines: number;
-    contentLines: string[];
-  } | null = null;
+  let currentHunk: HunkState | null = null;
   let hunkIndex = 0;
   
   for (const line of lines) {
@@ -103,7 +99,7 @@ function extractHunksFromFile(
           newEnd: match[2] ? parseInt(match[2], 10) : parseInt(match[1], 10),
           addedLines: 0,
           removedLines: 0,
-          contentLines: [line], // Include the @@ header in the content
+          contentLines: [], // Exclude @@ header from hash content
         };
       }
     } else if (currentHunk) {
@@ -249,41 +245,42 @@ export function getHunkDetails(
 }
 
 export async function runFileAnalyzer(cwd?: string): Promise<FileAnalyzerResult> {
+  const config = await loadConfig();
+  const { model, provider } = resolveModelForAgent("file-analyzer", config);
+  
+  // Get git diffs - only wrap git operations in try/catch
+  let fileDiffs: FileDiff[];
   try {
-    const config = await loadConfig();
-    const { model, provider } = resolveModelForAgent("file-analyzer", config);
-    
-    // Get git diffs
-    const fileDiffs = await getDiffs(undefined, cwd);
-    
-    // Convert FileDiff[] to FileChange[]
-    const files: FileChange[] = fileDiffs.map(fd => ({
-      path: fd.filePath,
-      status: fd.status as FileChange["status"],
-    }));
-    
-    // Create diffs map
-    const diffs = new Map<string, string>();
-    for (const fd of fileDiffs) {
-      // Combine all hunk content for this file
-      const diffContent = fd.hunks.map(h => h.content).join("\n");
-      diffs.set(fd.filePath, diffContent);
-    }
-    
-    // Classify files
-    const classifications = classifyChangedFiles(files, diffs);
-    
-    // Extract hunks
-    const { hunks, summaries } = extractHunksFromChanges(files, diffs, classifications);
-    
-    return {
-      hunks,
-      summaries,
-      classifications,
-    };
+    fileDiffs = await getDiffs(undefined, cwd);
   } catch (error) {
     return {
-      error: `File analysis failed: ${error instanceof Error ? error.message : String(error)}`,
+      error: `Git operation failed: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
+  
+  // Convert FileDiff[] to FileChange[]
+  const files: FileChange[] = fileDiffs.map(fd => ({
+    path: fd.filePath,
+    status: fd.status as FileChange["status"],
+  }));
+  
+  // Create diffs map
+  const diffs = new Map<string, string>();
+  for (const fd of fileDiffs) {
+    // Combine all hunk content for this file
+    const diffContent = fd.hunks.map(h => h.content).join("\n");
+    diffs.set(fd.filePath, diffContent);
+  }
+  
+  // Classify files
+  const classifications = classifyChangedFiles(files, diffs);
+  
+  // Extract hunks
+  const { hunks, summaries } = extractHunksFromChanges(files, diffs, classifications);
+  
+  return {
+    hunks,
+    summaries,
+    classifications,
+  };
 }

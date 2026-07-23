@@ -166,10 +166,11 @@ const AgentRoleConfigSchema = z.object({
   { message: "Each agent role must have at least one of model or provider" },
 );
 
+// Use a record that allows any subset of agent roles
 export const AgentRolesConfigSchema = z.record(
-  AgentRoleSchema,
+  z.string(),
   AgentRoleConfigSchema,
-);
+).optional();
 export type AgentRolesConfig = z.infer<typeof AgentRolesConfigSchema>;
 
 // Extended Chronicle config for multi-agent architecture
