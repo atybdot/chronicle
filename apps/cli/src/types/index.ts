@@ -90,6 +90,30 @@ export const CommitGroupSchema = z.object({
 });
 export type CommitGroup = z.infer<typeof CommitGroupSchema>;
 
+// Category to conventional commit prefix mapping
+export const CATEGORY_PREFIXES: Record<CommitGroup["category"], string> = {
+  setup: "chore",
+  feature: "feat",
+  fix: "fix",
+  refactor: "refactor",
+  docs: "docs",
+  test: "test",
+  chore: "chore",
+  style: "style",
+};
+
+// Category ordering for commit groups
+export const CATEGORY_ORDER: Record<CommitGroup["category"], number> = {
+  setup: 0,
+  feature: 1,
+  fix: 2,
+  refactor: 3,
+  test: 4,
+  docs: 5,
+  style: 6,
+  chore: 7,
+};
+
 // Audit signal from the auditor (spec-compliant)
 export const AuditSignalSchema = z.object({
   groupId: z.string(),
