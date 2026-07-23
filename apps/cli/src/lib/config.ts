@@ -1,7 +1,7 @@
 import { homedir } from "os";
 import { dirname, join } from "path";
 import { Result } from "better-result";
-import type { Config, LLMProvider, LLMProviderConfig } from "../types";
+import type { AgentRole, Config, LLMProvider, LLMProviderConfig } from "../types";
 import { ConfigError } from "./errors";
 import { clearCache, CacheNamespaces } from "./cache";
 
@@ -64,6 +64,7 @@ const DEFAULT_CONFIG: Config = {
     },
     providers: [],
     customPrompt: undefined,
+    agentRoles: undefined,
   },
   git: {
     authorName: undefined,
@@ -75,6 +76,7 @@ const DEFAULT_CONFIG: Config = {
     workHoursStart: 9,
     workHoursEnd: 18,
     excludeWeekends: false,
+    intent: undefined,
   },
 };
 
@@ -271,6 +273,28 @@ export async function getCustomPrompt(): Promise<string | undefined> {
   return config.llm.customPrompt;
 }
 
+/**
+ * Resolve the model and provider for a given agent role.
+ * Falls back to the top-level selected model/provider if not specified per-agent.
+ */
+export function resolveModelForAgent(
+  role: AgentRole,
+  config: Config,
+): { model: string; provider: string } {
+  const agentConfig = config.llm.agentRoles?.[role];
+  const selectedProvider = config.llm.selected.provider;
+  const selectedModel = config.llm.selected.model;
+
+  // Get the provider-specific default model if not set globally
+  const providerConfig = findProviderConfig(config, selectedProvider);
+  const fallbackModel = selectedModel ?? providerConfig?.model ?? "default";
+
+  return {
+    model: agentConfig?.model ?? fallbackModel,
+    provider: agentConfig?.provider ?? selectedProvider,
+  };
+}
+
 export function findProviderConfig(config: Config, provider: LLMProvider): LLMProviderConfig | undefined {
   return config.llm.providers.find((entry) => entry.name === provider);
 }
@@ -379,6 +403,11 @@ function normalizeConfig(config: Config): Config {
       },
       providers,
       customPrompt: config.llm.customPrompt,
+      agentRoles: config.llm.agentRoles,
+    },
+    defaults: {
+      ...config.defaults,
+      intent: config.defaults.intent,
     },
   };
 }

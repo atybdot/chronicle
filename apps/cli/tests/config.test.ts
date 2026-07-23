@@ -315,15 +315,198 @@ describe("config migration and multi-provider persistence", () => {
             ttl: 60_000,
           }),
         ).toBeNull();
-        expect(
-          await cacheModule.getCache("models-key", {
-            namespace: cacheModule.CacheNamespaces.MODELS,
-            ttl: 60_000,
-          }),
-        ).toBeNull();
-      } finally {
-        process.env.CHRONICLE_CACHE_DIR = previousCacheDir;
-      }
+      expect(
+        await cacheModule.getCache("models-key", {
+          namespace: cacheModule.CacheNamespaces.MODELS,
+          ttl: 60_000,
+        }),
+      ).toBeNull();
+    } finally {
+      process.env.CHRONICLE_CACHE_DIR = previousCacheDir;
+    }
+  });
+});
+
+describe("config schema extension - agent roles and intent", () => {
+  test("loads config without agentRoles or intent (backward compatibility)", async () => {
+    await withTempHome(async (home) => {
+      const configDir = join(home, ".config", "chronicle");
+      const configPath = join(configDir, "config.json");
+      await mkdir(configDir, { recursive: true });
+      await Bun.write(
+        configPath,
+        JSON.stringify({
+          llm: {
+            selected: { provider: "openrouter", model: "test-model" },
+            providers: [{ name: "openrouter", API_TOKEN: "token" }],
+          },
+          git: {},
+          defaults: {},
+        })
+      );
+
+      const configModule = await import(`../src/lib/config.ts?backward-compat=${Date.now()}-${Math.random()}`);
+      const config = await configModule.loadConfig();
+
+      expect(config.llm.agentRoles).toBeUndefined();
+      expect(config.defaults.intent).toBeUndefined();
+      expect(config.llm.selected.provider).toBe("openrouter");
     });
   });
+
+  test("loads config with agentRoles", async () => {
+    await withTempHome(async (home) => {
+      const configDir = join(home, ".config", "chronicle");
+      const configPath = join(configDir, "config.json");
+      await mkdir(configDir, { recursive: true });
+      await Bun.write(
+        configPath,
+        JSON.stringify({
+          llm: {
+            selected: { provider: "openrouter", model: "default-model" },
+            providers: [],
+            agentRoles: {
+              orchestrator: { provider: "openrouter", model: "claude-sonnet-4" },
+              "file-analyzer": { model: "llama3.2" },
+              executor: { provider: "local" },
+            },
+          },
+          git: {},
+          defaults: {},
+        })
+      );
+
+      const configModule = await import(`../src/lib/config.ts?agent-roles=${Date.now()}-${Math.random()}`);
+      const config = await configModule.loadConfig();
+
+      expect(config.llm.agentRoles).toBeDefined();
+      expect(config.llm.agentRoles?.orchestrator).toEqual({
+        provider: "openrouter",
+        model: "claude-sonnet-4",
+      });
+      expect(config.llm.agentRoles?.["file-analyzer"]).toEqual({
+        model: "llama3.2",
+      });
+      expect(config.llm.agentRoles?.executor).toEqual({
+        provider: "local",
+      });
+    });
+  });
+
+  test("loads config with intent", async () => {
+    await withTempHome(async (home) => {
+      const configDir = join(home, ".config", "chronicle");
+      const configPath = join(configDir, "config.json");
+      await mkdir(configDir, { recursive: true });
+      await Bun.write(
+        configPath,
+        JSON.stringify({
+          llm: {
+            selected: { provider: "openrouter" },
+            providers: [],
+          },
+          git: {},
+          defaults: {
+            intent: "Make it look like I worked feature-by-feature over 2 weeks",
+          },
+        })
+      );
+
+      const configModule = await import(`../src/lib/config.ts?intent=${Date.now()}-${Math.random()}`);
+      const config = await configModule.loadConfig();
+
+      expect(config.defaults.intent).toBe("Make it look like I worked feature-by-feature over 2 weeks");
+    });
+  });
+
+  test("resolveModelForAgent returns per-agent config when specified", async () => {
+    await withTempHome(async (home) => {
+      const configDir = join(home, ".config", "chronicle");
+      const configPath = join(configDir, "config.json");
+      await mkdir(configDir, { recursive: true });
+      await Bun.write(
+        configPath,
+        JSON.stringify({
+          llm: {
+            selected: { provider: "openrouter", model: "default-model" },
+            providers: [],
+            agentRoles: {
+              orchestrator: { provider: "anthropic", model: "claude-sonnet-4" },
+            },
+          },
+          git: {},
+          defaults: {},
+        })
+      );
+
+      const configModule = await import(`../src/lib/config.ts?resolve-per-agent=${Date.now()}-${Math.random()}`);
+      const config = await configModule.loadConfig();
+
+      const result = configModule.resolveModelForAgent("orchestrator", config);
+      expect(result).toEqual({
+        provider: "anthropic",
+        model: "claude-sonnet-4",
+      });
+    });
+  });
+
+  test("resolveModelForAgent falls back to top-level defaults when per-agent config is missing", async () => {
+    await withTempHome(async (home) => {
+      const configDir = join(home, ".config", "chronicle");
+      const configPath = join(configDir, "config.json");
+      await mkdir(configDir, { recursive: true });
+      await Bun.write(
+        configPath,
+        JSON.stringify({
+          llm: {
+            selected: { provider: "openrouter", model: "default-model" },
+            providers: [],
+          },
+          git: {},
+          defaults: {},
+        })
+      );
+
+      const configModule = await import(`../src/lib/config.ts?resolve-fallback=${Date.now()}-${Math.random()}`);
+      const config = await configModule.loadConfig();
+
+      const result = configModule.resolveModelForAgent("file-analyzer", config);
+      expect(result).toEqual({
+        provider: "openrouter",
+        model: "default-model",
+      });
+    });
+  });
+
+  test("resolveModelForAgent handles partial per-agent config", async () => {
+    await withTempHome(async (home) => {
+      const configDir = join(home, ".config", "chronicle");
+      const configPath = join(configDir, "config.json");
+      await mkdir(configDir, { recursive: true });
+      await Bun.write(
+        configPath,
+        JSON.stringify({
+          llm: {
+            selected: { provider: "openrouter", model: "default-model" },
+            providers: [],
+            agentRoles: {
+              executor: { provider: "local" }, // Only provider, no model
+            },
+          },
+          git: {},
+          defaults: {},
+        })
+      );
+
+      const configModule = await import(`../src/lib/config.ts?resolve-partial=${Date.now()}-${Math.random()}`);
+      const config = await configModule.loadConfig();
+
+      const result = configModule.resolveModelForAgent("executor", config);
+      expect(result).toEqual({
+        provider: "local",
+        model: "default-model", // Falls back to top-level model
+      });
+    });
+  });
+});
 });

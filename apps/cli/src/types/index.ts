@@ -301,6 +301,7 @@ export const ConfigSchema = z.object({
     }),
     providers: z.array(LLMProviderConfigSchema).default([]),
     customPrompt: z.string().optional(),
+    agentRoles: AgentRolesConfigSchema.optional(),
   }),
   git: z.object({
     authorName: z.string().optional(),
@@ -312,6 +313,7 @@ export const ConfigSchema = z.object({
     workHoursStart: z.number().min(0).max(23).default(9),
     workHoursEnd: z.number().min(0).max(23).default(18),
     excludeWeekends: z.boolean().default(false),
+    intent: z.string().optional(),
   }),
 });
 
