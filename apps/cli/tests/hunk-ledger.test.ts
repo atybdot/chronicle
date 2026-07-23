@@ -225,7 +225,7 @@ describe("Hunk Ledger", () => {
   });
 
   describe("verifyHunksPending", () => {
-    it("should return subset of hunk IDs that are still pending", async () => {
+    it("should return subset of hunk IDs that are still pending", () => {
       const ledger: HunkLedger = {
         gitDiffHash: "diff-hash-1",
         configHash: "config-hash-1",
@@ -239,7 +239,7 @@ describe("Hunk Ledger", () => {
         ledgerVersion: 1,
       };
 
-      const result = await verifyHunksPending(["hunk-1", "hunk-2", "hunk-3"], ledger);
+      const result = verifyHunksPending(["hunk-1", "hunk-2", "hunk-3"], ledger);
 
       expect(result.ok).toBe(true);
       if (result.ok) {

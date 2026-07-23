@@ -7,15 +7,7 @@ export interface AnalysisStrategy {
   estimatedTokensPerHunk: number;
 }
 
-const OVERHEAD = 2800; // system + instructions + ledger state in tokens
 const MAX_TOKENS_PER_HUNK = 500;
-
-/**
- * Token estimation: ~5 tokens per changed line (conservative for code diffs)
- */
-function estimateTokensFromChangedLines(lines: number): number {
-  return lines * 5;
-}
 
 /**
  * Calculate analysis strategy based on total changed lines and effective context limit.
@@ -23,6 +15,8 @@ function estimateTokensFromChangedLines(lines: number): number {
  * - < 200 lines: detail = "full", maxPasses = 1
  * - 200-1000 lines: detail = "compact", maxPasses = ceil(totalLines / effectiveLimit)
  * - > 1000 lines: detail = "summary", maxPasses = ceil(totalLines / effectiveLimit)
+ *
+ * Token estimation: Math.ceil(totalChangedLines / effectiveLimit * 100), capped at 500
  */
 export function calculateAnalysisStrategy(
   totalChangedLines: number,
@@ -56,10 +50,9 @@ export function calculateAnalysisStrategy(
       break;
   }
 
-  // Estimate tokens per hunk (rough heuristic, capped at 500)
-  const estimatedTokens = estimateTokensFromChangedLines(totalChangedLines);
+  // Estimate tokens per hunk (spec formula: totalLines / effectiveLimit * 100, capped at 500)
   const estimatedTokensPerHunk = Math.min(
-    Math.ceil(totalChangedLines > 0 ? (estimatedTokens / totalChangedLines) * 10 : 100),
+    Math.ceil(totalChangedLines > 0 ? (totalChangedLines / effectiveLimit) * 100 : 100),
     MAX_TOKENS_PER_HUNK,
   );
 

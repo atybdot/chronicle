@@ -1,4 +1,4 @@
-import * as fs from "fs";
+import { promises as fsPromises } from "fs";
 import * as path from "path";
 import type { HunkLedger } from "../types";
 
@@ -45,23 +45,19 @@ export async function writeLedger(ledger: HunkLedger, repoRoot: string): Promise
 
   try {
     // Create .chronicle directory if it doesn't exist
-    if (!fs.existsSync(chronicleDir)) {
-      fs.mkdirSync(chronicleDir, { recursive: true });
-    }
+    await fsPromises.mkdir(chronicleDir, { recursive: true });
 
     // Write to temp file first
     await Bun.write(tempPath, JSON.stringify(ledger, null, 2));
 
     // Rename temp file to final path (atomic on most filesystems)
-    fs.renameSync(tempPath, ledgerPath);
+    await fsPromises.rename(tempPath, ledgerPath);
 
     return { ok: true, value: undefined };
   } catch (error) {
     // Clean up temp file if it exists
     try {
-      if (fs.existsSync(tempPath)) {
-        fs.unlinkSync(tempPath);
-      }
+      await fsPromises.unlink(tempPath);
     } catch {
       // Ignore cleanup errors
     }
@@ -129,24 +125,27 @@ export async function initializeLedger(
 }
 
 /**
- * Move hunk IDs from pending to committed.
- * Returns new ledger object (immutable update).
+ * Helper to transition hunks between statuses.
+ * Used by markCommitted and rollbackHunks.
  */
-export function markCommitted(
+function transitionHunks(
   hunkIds: string[],
   ledger: HunkLedger,
-  commitId: string,
+  requiredCurrentStatus: "pending" | "committed",
+  targetStatus: "pending" | "committed",
+  commitId: string | null,
+  errorMessage: string,
 ): LedgerResult<HunkLedger> {
-  // Check if all hunk IDs are pending
-  const notPending = hunkIds.filter((id) => {
+  // Check if all hunk IDs are in the required status
+  const invalidHunks = hunkIds.filter((id) => {
     const hunk = ledger.hunks[id];
-    return !hunk || hunk.status !== "pending";
+    return !hunk || hunk.status !== requiredCurrentStatus;
   });
 
-  if (notPending.length > 0) {
+  if (invalidHunks.length > 0) {
     return {
       ok: false,
-      error: `Hunk IDs not pending: ${notPending.join(", ")}`,
+      error: `${errorMessage}: ${invalidHunks.join(", ")}`,
     };
   }
 
@@ -157,7 +156,7 @@ export function markCommitted(
     if (hunk) {
       newHunks[hunkId] = {
         ...hunk,
-        status: "committed",
+        status: targetStatus,
         commitId,
       };
     }
@@ -173,6 +172,25 @@ export function markCommitted(
 }
 
 /**
+ * Move hunk IDs from pending to committed.
+ * Returns new ledger object (immutable update).
+ */
+export function markCommitted(
+  hunkIds: string[],
+  ledger: HunkLedger,
+  commitId: string,
+): LedgerResult<HunkLedger> {
+  return transitionHunks(
+    hunkIds,
+    ledger,
+    "pending",
+    "committed",
+    commitId,
+    "Hunk IDs not pending",
+  );
+}
+
+/**
  * Move hunk IDs from committed back to pending.
  * Used for rollback.
  */
@@ -180,49 +198,24 @@ export function rollbackHunks(
   hunkIds: string[],
   ledger: HunkLedger,
 ): LedgerResult<HunkLedger> {
-  // Check if all hunk IDs are committed
-  const notCommitted = hunkIds.filter((id) => {
-    const hunk = ledger.hunks[id];
-    return !hunk || hunk.status !== "committed";
-  });
-
-  if (notCommitted.length > 0) {
-    return {
-      ok: false,
-      error: `Hunk IDs not committed: ${notCommitted.join(", ")}`,
-    };
-  }
-
-  // Create new ledger with updated statuses
-  const newHunks = { ...ledger.hunks };
-  for (const hunkId of hunkIds) {
-    const hunk = newHunks[hunkId];
-    if (hunk) {
-      newHunks[hunkId] = {
-        ...hunk,
-        status: "pending",
-        commitId: null,
-      };
-    }
-  }
-
-  return {
-    ok: true,
-    value: {
-      ...ledger,
-      hunks: newHunks,
-    },
-  };
+  return transitionHunks(
+    hunkIds,
+    ledger,
+    "committed",
+    "pending",
+    null,
+    "Hunk IDs not committed",
+  );
 }
 
 /**
  * Return the subset of hunk IDs that are still pending.
  * Used to filter out already-committed hunks before execution.
  */
-export async function verifyHunksPending(
+export function verifyHunksPending(
   hunkIds: string[],
   ledger: HunkLedger,
-): Promise<LedgerResult<string[]>> {
+): LedgerResult<string[]> {
   const pending = hunkIds.filter((id) => {
     const hunk = ledger.hunks[id];
     return hunk && hunk.status === "pending";
