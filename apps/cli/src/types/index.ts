@@ -166,7 +166,7 @@ const AgentRoleConfigSchema = z.object({
   { message: "Each agent role must have at least one of model or provider" },
 );
 
-// Use a record that allows any subset of agent roles
+// Use a string-keyed record; enum validation is handled by agentRolesValidation refinement
 export const AgentRolesConfigSchema = z.record(
   z.string(),
   AgentRoleConfigSchema,

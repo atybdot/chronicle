@@ -11,6 +11,14 @@ import {
 import type { FileChange, Hunk } from "../src/types";
 import { computeHunkId } from "../src/lib/git";
 
+function makeClassifications(...paths: string[]): Map<string, { path: string; kind: "analyzable" | "asset"; reason: string }> {
+  const classifications = new Map<string, { path: string; kind: "analyzable" | "asset"; reason: string }>();
+  for (const path of paths) {
+    classifications.set(path, { path, kind: "analyzable", reason: "test" });
+  }
+  return classifications;
+}
+
 describe("FileAnalyzer", () => {
   let tempDir: string;
 
@@ -86,8 +94,7 @@ describe("FileAnalyzer", () => {
       const diffs = new Map<string, string>();
       diffs.set("src/index.ts", "@@ -1,3 +1,4 @@\n line1\n+new line\n line2\n line3");
 
-      const classifications = new Map<string, { path: string; kind: "analyzable" | "asset"; reason: string }>();
-      classifications.set("src/index.ts", { path: "src/index.ts", kind: "analyzable", reason: "test" });
+      const classifications = makeClassifications("src/index.ts");
 
       const { hunks, summaries } = extractHunksFromChanges(files, diffs, classifications);
 
@@ -125,8 +132,7 @@ describe("FileAnalyzer", () => {
         "@@ -1,3 +1,5 @@\n line1\n+added line1\n+added line2\n-removed line\n line2\n line3"
       );
 
-      const classifications = new Map<string, { path: string; kind: "analyzable" | "asset"; reason: string }>();
-      classifications.set("src/index.ts", { path: "src/index.ts", kind: "analyzable", reason: "test" });
+      const classifications = makeClassifications("src/index.ts");
 
       const { summaries } = extractHunksFromChanges(files, diffs, classifications);
 
@@ -148,8 +154,7 @@ describe("FileAnalyzer", () => {
       const diffs2 = new Map<string, string>();
       diffs2.set("src/index.ts", "@@ -10,3 +10,4 @@\n line1\n+new line\n line2\n line3");
 
-      const classifications = new Map<string, { path: string; kind: "analyzable" | "asset"; reason: string }>();
-      classifications.set("src/index.ts", { path: "src/index.ts", kind: "analyzable", reason: "test" });
+      const classifications = makeClassifications("src/index.ts");
 
       const { hunks: hunks1 } = extractHunksFromChanges(files, diffs1, classifications);
       const { hunks: hunks2 } = extractHunksFromChanges(files, diffs2, classifications);
@@ -169,8 +174,7 @@ describe("FileAnalyzer", () => {
       const diffs2 = new Map<string, string>();
       diffs2.set("src/index.ts", "@@ -1,3 +1,4 @@\n line1\n+new line B\n line2\n line3");
 
-      const classifications = new Map<string, { path: string; kind: "analyzable" | "asset"; reason: string }>();
-      classifications.set("src/index.ts", { path: "src/index.ts", kind: "analyzable", reason: "test" });
+      const classifications = makeClassifications("src/index.ts");
 
       const { hunks: hunks1 } = extractHunksFromChanges(files, diffs1, classifications);
       const { hunks: hunks2 } = extractHunksFromChanges(files, diffs2, classifications);
@@ -191,8 +195,7 @@ describe("FileAnalyzer", () => {
       const diffs2 = new Map<string, string>();
       diffs2.set("src/index.ts", "@@ -5,3 +5,4 @@\n line1\n+new line\n line2\n line3");
 
-      const classifications = new Map<string, { path: string; kind: "analyzable" | "asset"; reason: string }>();
-      classifications.set("src/index.ts", { path: "src/index.ts", kind: "analyzable", reason: "test" });
+      const classifications = makeClassifications("src/index.ts");
 
       const { hunks: hunks1 } = extractHunksFromChanges(files, diffs1, classifications);
       const { hunks: hunks2 } = extractHunksFromChanges(files, diffs2, classifications);

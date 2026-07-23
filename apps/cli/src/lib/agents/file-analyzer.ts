@@ -55,9 +55,10 @@ function createHunkFromState(
   status: FileChange["status"],
   hunkIndex: number,
 ): Hunk {
-  const diffContent = state.contentLines.join("\n");
+  // Include file path and hunk index to ensure uniqueness for empty hunks
+  const hashInput = `${filePath}:${hunkIndex}:${state.contentLines.join("\n")}`;
   return {
-    id: computeHunkId(diffContent),
+    id: computeHunkId(hashInput),
     filePath,
     status,
     hunkIndex,
@@ -272,15 +273,19 @@ export async function runFileAnalyzer(cwd?: string): Promise<FileAnalyzerResult>
     diffs.set(fd.filePath, diffContent);
   }
   
-  // Classify files
-  const classifications = classifyChangedFiles(files, diffs);
-  
-  // Extract hunks
-  const { hunks, summaries } = extractHunksFromChanges(files, diffs, classifications);
-  
-  return {
-    hunks,
-    summaries,
-    classifications,
-  };
+  // Classify files and extract hunks - wrap in try/catch for safety
+  try {
+    const classifications = classifyChangedFiles(files, diffs);
+    const { hunks, summaries } = extractHunksFromChanges(files, diffs, classifications);
+    
+    return {
+      hunks,
+      summaries,
+      classifications,
+    };
+  } catch (error) {
+    return {
+      error: `Analysis failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
 }
