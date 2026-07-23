@@ -572,3 +572,221 @@ function parseGitStatus(code: string): "added" | "modified" | "deleted" | "renam
       return "modified";
   }
 }
+
+// ============================================================================
+// New Git Utilities for Multi-Agent Architecture (Ticket 02)
+// ============================================================================
+
+import { createHash } from "crypto";
+
+export interface FileDiff {
+  filePath: string;
+  oldPath?: string;
+  status: "added" | "modified" | "deleted" | "renamed";
+  hunks: HunkDiff[];
+}
+
+export interface HunkDiff {
+  header: string;
+  content: string;
+  startLine: number;
+  endLine: number;
+}
+
+export interface PatchData {
+  filePath: string;
+  oldPath?: string;
+  status: "added" | "modified" | "deleted" | "renamed";
+  patch: string;
+}
+
+export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+
+/**
+ * Compute SHA-256 hash of hunk diff content.
+ * Deterministic: same content → same ID across runs.
+ */
+export function computeHunkId(diffContent: string): string {
+  return createHash("sha256").update(diffContent).digest("hex");
+}
+
+/**
+ * Parse unified diff text into structured FileDiff objects with hunk IDs.
+ */
+export function parseDiffs(diffText: string): FileDiff[] {
+  const files: FileDiff[] = [];
+  const fileSections = diffText.split(/^diff --git /m).filter(Boolean);
+
+  for (const section of fileSections) {
+    const lines = section.split("\n");
+    if (lines.length === 0) continue;
+
+    // Parse file path from first line: "a/path b/path"
+    const pathMatch = lines[0]?.match(/^a\/(.+?) b\/(.+)$/);
+    if (!pathMatch) continue;
+
+    const oldPath = pathMatch[1] ?? "";
+    const filePath = pathMatch[2] ?? "";
+    const isRename = oldPath !== filePath;
+
+    // Determine status from subsequent lines
+    let status: FileDiff["status"] = "modified";
+    const statusLine = lines.find((l) => l.startsWith("new file") || l.startsWith("deleted file") || l.startsWith("rename"));
+    if (statusLine?.startsWith("new file")) status = "added";
+    else if (statusLine?.startsWith("deleted file")) status = "deleted";
+    else if (isRename) status = "renamed";
+
+    // Parse hunks
+    const hunks: HunkDiff[] = [];
+    let currentHunk: HunkDiff | null = null;
+    let hunkStartLine = 0;
+
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i] ?? "";
+
+      // Check for hunk header: @@ -start,count +start,count @@
+      const hunkMatch = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+      if (hunkMatch) {
+        if (currentHunk) {
+          hunks.push(currentHunk);
+        }
+        hunkStartLine = parseInt(hunkMatch[2] ?? "0", 10);
+        currentHunk = {
+          header: line,
+          content: "",
+          startLine: hunkStartLine,
+          endLine: hunkStartLine,
+        };
+        continue;
+      }
+
+      if (currentHunk) {
+        currentHunk.content += line + "\n";
+        if (line.startsWith("+") && !line.startsWith("+++")) {
+          currentHunk.endLine++;
+        } else if (!line.startsWith("-") && !line.startsWith("---")) {
+          currentHunk.endLine++;
+        }
+      }
+    }
+
+    if (currentHunk) {
+      hunks.push(currentHunk);
+    }
+
+    files.push({
+      filePath,
+      oldPath: isRename ? oldPath : undefined,
+      status,
+      hunks,
+    });
+  }
+
+  return files;
+}
+
+/**
+ * Find a hunk by its ID and return patch data suitable for git apply.
+ */
+export function resolveHunkIdToPatch(hunkId: string, diffs: FileDiff[]): PatchData | null {
+  for (const fileDiff of diffs) {
+    for (const hunk of fileDiff.hunks) {
+      const hunkContent = hunk.header + "\n" + hunk.content;
+      const computedId = computeHunkId(hunkContent);
+
+      if (computedId === hunkId) {
+        // Build patch data
+        const patchLines: string[] = [];
+        patchLines.push(`diff --git a/${fileDiff.filePath} b/${fileDiff.filePath}`);
+        patchLines.push(`--- a/${fileDiff.filePath}`);
+        patchLines.push(`+++ b/${fileDiff.filePath}`);
+        patchLines.push(hunk.header);
+        patchLines.push(hunk.content);
+
+        return {
+          filePath: fileDiff.filePath,
+          oldPath: fileDiff.oldPath,
+          status: fileDiff.status,
+          patch: patchLines.join("\n"),
+        };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Stage specific hunks by their IDs.
+ * Returns error if any hunk ID is not found in diffs.
+ */
+export async function stageHunksByIds(
+  hunkIds: string[],
+  diffs: FileDiff[],
+  cwd?: string,
+): Promise<Result<void>> {
+  const workdir = cwd ?? process.cwd();
+  const gitRoot = await getGitRoot(workdir);
+
+  // First, find all patches
+  const patches: PatchData[] = [];
+  const missingIds: string[] = [];
+
+  for (const hunkId of hunkIds) {
+    const patch = resolveHunkIdToPatch(hunkId, diffs);
+    if (patch) {
+      patches.push(patch);
+    } else {
+      missingIds.push(hunkId);
+    }
+  }
+
+  if (missingIds.length > 0) {
+    return {
+      ok: false,
+      error: `Hunk IDs not found: ${missingIds.join(", ")}`,
+    };
+  }
+
+  // Reset index to HEAD
+  try {
+    await $`git reset HEAD`.cwd(gitRoot).quiet();
+  } catch {
+    // Ignore error if no commits yet
+  }
+
+  // Apply each patch
+  for (const patch of patches) {
+    try {
+      // Write patch to temp file and apply
+      const patchFile = `${gitRoot}/.chronicle-temp-patch.patch`;
+      await Bun.write(patchFile, patch.patch);
+      await $`git apply --cached ${patchFile}`.cwd(gitRoot);
+      await Bun.file(patchFile).unlink();
+    } catch (error) {
+      return {
+        ok: false,
+        error: `Failed to apply patch for ${patch.filePath}: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
+
+  return { ok: true, value: undefined };
+}
+
+/**
+ * Get current uncommitted diffs (or diffs between two commits).
+ */
+export async function getDiffs(commitHash?: string, cwd?: string): Promise<FileDiff[]> {
+  const workdir = cwd ?? process.cwd();
+
+  let diffText: string;
+  if (commitHash) {
+    // Get diffs between commit and HEAD
+    diffText = await $`git diff ${commitHash} HEAD`.cwd(workdir).text();
+  } else {
+    // Get current uncommitted diffs
+    diffText = await $`git diff HEAD`.cwd(workdir).text();
+  }
+
+  return parseDiffs(diffText);
+}
