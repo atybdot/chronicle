@@ -158,12 +158,17 @@ export const AgentCommitPlanSchema = z.object({
 export type AgentCommitPlan = z.infer<typeof AgentCommitPlanSchema>;
 
 // Per-agent model routing config
+const AgentRoleConfigSchema = z.object({
+  model: z.string().optional(),
+  provider: z.string().optional(),
+}).refine(
+  (config) => config.model !== undefined || config.provider !== undefined,
+  { message: "Each agent role must have at least one of model or provider" },
+);
+
 export const AgentRolesConfigSchema = z.record(
   AgentRoleSchema,
-  z.object({
-    model: z.string().optional(),
-    provider: z.string().optional(),
-  }),
+  AgentRoleConfigSchema,
 );
 export type AgentRolesConfig = z.infer<typeof AgentRolesConfigSchema>;
 

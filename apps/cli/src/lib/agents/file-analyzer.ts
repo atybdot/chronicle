@@ -9,7 +9,7 @@ type FileAnalyzerResult = {
   hunks: Hunk[];
   summaries: HunkSummary[];
   classifications: Map<string, FileClassification>;
-};
+} | { error: string };
 
 type GetHunksDetailResult = {
   hunks: HunkDetail[];
@@ -19,7 +19,6 @@ const ASSET_EXTENSIONS = new Set([
   ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg",
   ".woff", ".woff2", ".ttf", ".eot",
   ".pdf", ".zip", ".tar", ".gz", ".7z",
-  ".lock",
 ]);
 
 const ASSET_DIRECTORIES = ["node_modules/", "dist/", "build/", ".next/", ".cache/"];
@@ -42,6 +41,36 @@ function isAssetFile(path: string): boolean {
   return false;
 }
 
+function createHunkFromState(
+  state: {
+    newStart: number;
+    newEnd: number;
+    addedLines: number;
+    removedLines: number;
+    contentLines: string[];
+  },
+  filePath: string,
+  status: FileChange["status"],
+  hunkIndex: number,
+): Hunk {
+  const diffContent = state.contentLines.join("\n");
+  return {
+    id: computeHunkId(diffContent),
+    filePath,
+    status,
+    hunkIndex,
+    newStart: state.newStart,
+    newEnd: state.newEnd,
+    addedLines: state.addedLines,
+    removedLines: state.removedLines,
+    changeType: state.addedLines > 0 && state.removedLines > 0 
+      ? "mixed" 
+      : state.addedLines > 0 
+        ? "addition" 
+        : "deletion",
+  };
+}
+
 function extractHunksFromFile(
   filePath: string,
   diff: string,
@@ -49,29 +78,20 @@ function extractHunksFromFile(
 ): Hunk[] {
   const hunks: Hunk[] = [];
   const lines = diff.split("\n");
-  let currentHunk: Partial<Hunk> | null = null;
+  let currentHunk: {
+    newStart: number;
+    newEnd: number;
+    addedLines: number;
+    removedLines: number;
+    contentLines: string[];
+  } | null = null;
   let hunkIndex = 0;
   
   for (const line of lines) {
     if (line.startsWith("@@")) {
       // Save previous hunk if exists
-      if (currentHunk && currentHunk.newStart !== undefined && currentHunk.newEnd !== undefined) {
-        const hunkContent = `${currentHunk.newStart},${currentHunk.newEnd}`;
-        hunks.push({
-          id: computeHunkId(hunkContent),
-          filePath,
-          status,
-          hunkIndex: currentHunk.hunkIndex ?? hunkIndex,
-          newStart: currentHunk.newStart,
-          newEnd: currentHunk.newEnd,
-          addedLines: currentHunk.addedLines ?? 0,
-          removedLines: currentHunk.removedLines ?? 0,
-          changeType: (currentHunk.addedLines ?? 0) > 0 && (currentHunk.removedLines ?? 0) > 0 
-            ? "mixed" 
-            : (currentHunk.addedLines ?? 0) > 0 
-              ? "addition" 
-              : "deletion",
-        });
+      if (currentHunk) {
+        hunks.push(createHunkFromState(currentHunk, filePath, status, hunkIndex));
         hunkIndex++;
       }
       
@@ -83,35 +103,22 @@ function extractHunksFromFile(
           newEnd: match[2] ? parseInt(match[2], 10) : parseInt(match[1], 10),
           addedLines: 0,
           removedLines: 0,
+          contentLines: [line], // Include the @@ header in the content
         };
       }
     } else if (currentHunk) {
+      currentHunk.contentLines.push(line);
       if (line.startsWith("+")) {
-        currentHunk.addedLines = (currentHunk.addedLines ?? 0) + 1;
+        currentHunk.addedLines++;
       } else if (line.startsWith("-")) {
-        currentHunk.removedLines = (currentHunk.removedLines ?? 0) + 1;
+        currentHunk.removedLines++;
       }
     }
   }
   
   // Save last hunk
-  if (currentHunk && currentHunk.newStart !== undefined && currentHunk.newEnd !== undefined) {
-    const hunkContent = `${currentHunk.newStart},${currentHunk.newEnd}`;
-    hunks.push({
-      id: computeHunkId(hunkContent),
-      filePath,
-      status,
-      hunkIndex: currentHunk.hunkIndex ?? hunkIndex,
-      newStart: currentHunk.newStart,
-      newEnd: currentHunk.newEnd,
-      addedLines: currentHunk.addedLines ?? 0,
-      removedLines: currentHunk.removedLines ?? 0,
-      changeType: (currentHunk.addedLines ?? 0) > 0 && (currentHunk.removedLines ?? 0) > 0 
-        ? "mixed" 
-        : (currentHunk.addedLines ?? 0) > 0 
-          ? "addition" 
-          : "deletion",
-    });
+  if (currentHunk) {
+    hunks.push(createHunkFromState(currentHunk, filePath, status, hunkIndex));
   }
   
   return hunks;
@@ -141,12 +148,6 @@ function createHunkSummary(
   };
 }
 
-export function getFileChanges(): FileChange[] {
-  // This will be called by the agent via tools
-  // For now, return empty array - actual implementation will be in the agent
-  return [];
-}
-
 export function classifyChangedFiles(
   files: FileChange[],
   diffs: Map<string, string>
@@ -164,7 +165,6 @@ export function classifyChangedFiles(
       });
     } else {
       // Use the existing classification logic
-      const diff = diffs.get(file.path);
       const classification = classifyFiles({
         files: [file],
         diffs,
@@ -249,35 +249,41 @@ export function getHunkDetails(
 }
 
 export async function runFileAnalyzer(cwd?: string): Promise<FileAnalyzerResult> {
-  const config = await loadConfig();
-  const { model, provider } = resolveModelForAgent("file-analyzer", config);
-  
-  // Get git diffs
-  const fileDiffs = await getDiffs(undefined, cwd);
-  
-  // Convert FileDiff[] to FileChange[]
-  const files: FileChange[] = fileDiffs.map(fd => ({
-    path: fd.filePath,
-    status: fd.status as FileChange["status"],
-  }));
-  
-  // Create diffs map
-  const diffs = new Map<string, string>();
-  for (const fd of fileDiffs) {
-    // Combine all hunk content for this file
-    const diffContent = fd.hunks.map(h => h.content).join("\n");
-    diffs.set(fd.filePath, diffContent);
+  try {
+    const config = await loadConfig();
+    const { model, provider } = resolveModelForAgent("file-analyzer", config);
+    
+    // Get git diffs
+    const fileDiffs = await getDiffs(undefined, cwd);
+    
+    // Convert FileDiff[] to FileChange[]
+    const files: FileChange[] = fileDiffs.map(fd => ({
+      path: fd.filePath,
+      status: fd.status as FileChange["status"],
+    }));
+    
+    // Create diffs map
+    const diffs = new Map<string, string>();
+    for (const fd of fileDiffs) {
+      // Combine all hunk content for this file
+      const diffContent = fd.hunks.map(h => h.content).join("\n");
+      diffs.set(fd.filePath, diffContent);
+    }
+    
+    // Classify files
+    const classifications = classifyChangedFiles(files, diffs);
+    
+    // Extract hunks
+    const { hunks, summaries } = extractHunksFromChanges(files, diffs, classifications);
+    
+    return {
+      hunks,
+      summaries,
+      classifications,
+    };
+  } catch (error) {
+    return {
+      error: `File analysis failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
   }
-  
-  // Classify files
-  const classifications = classifyChangedFiles(files, diffs);
-  
-  // Extract hunks
-  const { hunks, summaries } = extractHunksFromChanges(files, diffs, classifications);
-  
-  return {
-    hunks,
-    summaries,
-    classifications,
-  };
 }

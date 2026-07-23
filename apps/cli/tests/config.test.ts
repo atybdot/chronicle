@@ -315,15 +315,16 @@ describe("config migration and multi-provider persistence", () => {
             ttl: 60_000,
           }),
         ).toBeNull();
-      expect(
-        await cacheModule.getCache("models-key", {
-          namespace: cacheModule.CacheNamespaces.MODELS,
-          ttl: 60_000,
-        }),
-      ).toBeNull();
-    } finally {
-      process.env.CHRONICLE_CACHE_DIR = previousCacheDir;
-    }
+        expect(
+          await cacheModule.getCache("models-key", {
+            namespace: cacheModule.CacheNamespaces.MODELS,
+            ttl: 60_000,
+          }),
+        ).toBeNull();
+      } finally {
+        process.env.CHRONICLE_CACHE_DIR = previousCacheDir;
+      }
+    });
   });
 });
 
@@ -508,5 +509,4 @@ describe("config schema extension - agent roles and intent", () => {
       });
     });
   });
-});
 });
