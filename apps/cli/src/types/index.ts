@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 // ============================================================================
-// New Multi-Agent Types (Ticket 01)
+// New Multi-Agent Types (Ticket 01) - Aligned with spec.md
 // ============================================================================
 
 // Agent roles
@@ -27,90 +27,110 @@ export const FileChangeSchema = z.object({
 });
 export type FileChange = z.infer<typeof FileChangeSchema>;
 
-// Hunk within a file diff
+// Hunk within a file diff (spec-compliant)
 export const HunkSchema = z.object({
-  header: z.string(),
-  content: z.string(),
-  startLine: z.number(),
-  endLine: z.number(),
+  id: z.string(), // SHA-256 of hunk content — stable across runs
+  filePath: z.string(),
+  status: z.enum(["added", "modified", "deleted", "renamed"]),
+  hunkIndex: z.number(),
+  newStart: z.number(),
+  newEnd: z.number(),
+  addedLines: z.number(),
+  removedLines: z.number(),
+  changeType: z.enum(["addition", "deletion", "modification", "mixed"]),
 });
 export type Hunk = z.infer<typeof HunkSchema>;
 
-// Hunk summary for hierarchical context management
+// Hunk summary for hierarchical context management (spec-compliant)
 export const HunkSummarySchema = z.object({
-  hunkId: z.string(),
+  id: z.string(),
   filePath: z.string(),
-  header: z.string(),
-  changeType: z.enum(["new", "modified", "deleted"]),
-  addedLines: z.number(),
-  removedLines: z.number(),
-  summary: z.string(),
-  detailLevel: z.enum(["summary", "compact", "full"]),
+  hunkCount: z.number(),
+  addedTotal: z.number(),
+  removedTotal: z.number(),
+  semanticLabels: z.array(z.string()), // e.g., ["validation", "error-handling", "types"]
+  preview: z.string(), // First N lines of the hunk
 });
 export type HunkSummary = z.infer<typeof HunkSummarySchema>;
 
-// Full hunk detail (on-demand only)
+// Full hunk detail (on-demand only, spec-compliant)
 export const HunkDetailSchema = z.object({
   hunkId: z.string(),
-  hunks: z.array(HunkSchema),
+  fullContent: z.string(), // Complete hunk diff text
+  surroundingContext: z.string(), // N lines before and after for file-level understanding
 });
 export type HunkDetail = z.infer<typeof HunkDetailSchema>;
 
-// Commit message with style
+// Commit message (spec-compliant)
 export const CommitMessageSchema = z.object({
-  subject: z.string(),
-  body: z.string().optional(),
-  style: z.enum(["conventional", "descriptive", "terse"]),
+  groupId: z.string(),
+  subject: z.string(), // e.g., "feat: add password validation"
+  body: z.string().optional(), // Optional body paragraph
 });
 export type CommitMessage = z.infer<typeof CommitMessageSchema>;
 
-// Timestamp assignment for a commit
+// Timestamp assignment for a commit (spec-compliant)
 export const TimestampAssignmentSchema = z.object({
-  commitDate: z.string(),
-  authorDate: z.string(),
-  commitDateTz: z.string(),
-  authorDateTz: z.string(),
+  groupId: z.string(),
+  date: z.string(), // ISO date string
+  sessionId: z.string(), // Groups commits into coding sessions
 });
 export type TimestampAssignment = z.infer<typeof TimestampAssignmentSchema>;
 
-// Commit group - a logical unit of work
+// Commit group - a logical unit of work (spec-compliant)
 export const CommitGroupSchema = z.object({
-  groupId: z.string(),
-  message: CommitMessageSchema,
-  hunks: z.array(HunkSummarySchema),
-  intent: z.string(),
-  dependencies: z.array(z.string()),
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  hunkIds: z.array(z.string()),
+  filePaths: z.array(z.string()),
+  category: z.enum(["setup", "feature", "fix", "refactor", "docs", "test", "chore", "style"]),
   order: z.number(),
-  timestamps: TimestampAssignmentSchema.optional(),
+  dependencies: z.array(z.string()), // IDs of groups that must come before this one
 });
 export type CommitGroup = z.infer<typeof CommitGroupSchema>;
 
-// Audit signal from the auditor
+// Audit signal from the auditor (spec-compliant)
 export const AuditSignalSchema = z.object({
-  type: z.enum([
-    "reorder",
-    "split",
-    "merge",
-    "rewrite",
-    "message-style",
-    "missing-hunks",
-    "overlap",
-    "warning",
-  ]),
-  groupId: z.string().optional(),
-  hunkId: z.string().optional(),
-  message: z.string(),
+  groupId: z.string(),
+  issue: z.string(),
   severity: z.enum(["error", "warning"]),
+  category: z.enum(["grouping", "message", "timing", "dependency", "overlap", "coverage"]),
+  suggestedAction: z.string().optional(), // e.g., "split group into 2", "merge groups 3 and 4"
 });
 export type AuditSignal = z.infer<typeof AuditSignalSchema>;
 
-// Hunk ledger for tracking hunk lifecycle
+// Hunk ledger for tracking hunk lifecycle (spec-compliant)
 export const HunkLedgerSchema = z.object({
-  version: z.number(),
-  hunkIds: z.array(z.string()),
-  committedHunkIds: z.array(z.string()),
-  createdAt: z.string(),
-  updatedAt: z.string(),
+  gitDiffHash: z.string(), // sha256-of-original-git-diff
+  configHash: z.string(), // sha256-of-active-config-slice
+  hunks: z.record(
+    z.string(),
+    z.object({
+      id: z.string(),
+      file: z.string(),
+      hunkIndex: z.number(),
+      status: z.enum(["pending", "committed"]),
+      commitId: z.string().nullable(),
+    }),
+  ),
+  newFiles: z.record(
+    z.string(),
+    z.object({
+      path: z.string(),
+      status: z.enum(["pending", "committed"]),
+      commitId: z.string().nullable(),
+    }),
+  ),
+  commits: z.record(
+    z.string(),
+    z.object({
+      message: z.string(),
+      hash: z.string().nullable(),
+      applied: z.boolean(),
+    }),
+  ),
+  ledgerVersion: z.number(),
 });
 export type HunkLedger = z.infer<typeof HunkLedgerSchema>;
 
@@ -189,7 +209,7 @@ export const ChronicleConfigSchema = z.object({
 export type ChronicleConfig = z.infer<typeof ChronicleConfigSchema>;
 
 // ============================================================================
-// Legacy Types (kept for backward compatibility)
+// Legacy Types (kept for backward compatibility - to be deleted per sub-ticket)
 // ============================================================================
 
 export interface LineRange {

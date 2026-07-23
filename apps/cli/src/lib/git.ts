@@ -600,7 +600,7 @@ export interface PatchData {
   patch: string;
 }
 
-export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+export type GitResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
 /**
  * Compute SHA-256 hash of hunk diff content.
@@ -687,6 +687,7 @@ export function parseDiffs(diffText: string): FileDiff[] {
 
 /**
  * Find a hunk by its ID and return patch data suitable for git apply.
+ * Handles renames correctly by using oldPath for --- and filePath for +++.
  */
 export function resolveHunkIdToPatch(hunkId: string, diffs: FileDiff[]): PatchData | null {
   for (const fileDiff of diffs) {
@@ -695,10 +696,10 @@ export function resolveHunkIdToPatch(hunkId: string, diffs: FileDiff[]): PatchDa
       const computedId = computeHunkId(hunkContent);
 
       if (computedId === hunkId) {
-        // Build patch data
+        // Build patch data with correct paths for renames
         const patchLines: string[] = [];
-        patchLines.push(`diff --git a/${fileDiff.filePath} b/${fileDiff.filePath}`);
-        patchLines.push(`--- a/${fileDiff.filePath}`);
+        patchLines.push(`diff --git a/${fileDiff.oldPath ?? fileDiff.filePath} b/${fileDiff.filePath}`);
+        patchLines.push(`--- a/${fileDiff.oldPath ?? fileDiff.filePath}`);
         patchLines.push(`+++ b/${fileDiff.filePath}`);
         patchLines.push(hunk.header);
         patchLines.push(hunk.content);
@@ -716,18 +717,18 @@ export function resolveHunkIdToPatch(hunkId: string, diffs: FileDiff[]): PatchDa
 }
 
 /**
- * Stage specific hunks by their IDs.
- * Returns error if any hunk ID is not found in diffs.
+ * Stage specific hunks by their IDs without resetting index.
+ * This allows incremental staging for sequential commit groups.
  */
 export async function stageHunksByIds(
   hunkIds: string[],
   diffs: FileDiff[],
   cwd?: string,
-): Promise<Result<void>> {
+): Promise<GitResult<void>> {
   const workdir = cwd ?? process.cwd();
   const gitRoot = await getGitRoot(workdir);
 
-  // First, find all patches
+  // Find all patches
   const patches: PatchData[] = [];
   const missingIds: string[] = [];
 
@@ -747,14 +748,7 @@ export async function stageHunksByIds(
     };
   }
 
-  // Reset index to HEAD
-  try {
-    await $`git reset HEAD`.cwd(gitRoot).quiet();
-  } catch {
-    // Ignore error if no commits yet
-  }
-
-  // Apply each patch
+  // Apply each patch without resetting index
   for (const patch of patches) {
     try {
       // Write patch to temp file and apply
@@ -771,6 +765,112 @@ export async function stageHunksByIds(
   }
 
   return { ok: true, value: undefined };
+}
+
+/**
+ * Stage a full file by path.
+ */
+export async function stageFullFile(
+  filePath: string,
+  cwd?: string,
+): Promise<GitResult<void>> {
+  const workdir = cwd ?? process.cwd();
+  const gitRoot = await getGitRoot(workdir);
+
+  try {
+    await $`git add -- ${filePath}`.cwd(gitRoot);
+    return { ok: true, value: undefined };
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Failed to stage file ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+/**
+ * Create a commit with specific date and author.
+ */
+export async function createCommitWithDate(
+  message: string,
+  date: Date,
+  authorName?: string,
+  authorEmail?: string,
+  noVerify = false,
+  cwd?: string,
+): Promise<GitResult<string>> {
+  const workdir = cwd ?? process.cwd();
+  const isoDate = date.toISOString();
+
+  // Merge with existing environment to preserve HOME and other necessary vars
+  const env: Record<string, string> = {
+    ...process.env as Record<string, string>,
+    GIT_AUTHOR_DATE: isoDate,
+    GIT_COMMITTER_DATE: isoDate,
+  };
+
+  if (authorName) {
+    env.GIT_AUTHOR_NAME = authorName;
+    env.GIT_COMMITTER_NAME = authorName;
+  }
+  if (authorEmail) {
+    env.GIT_AUTHOR_EMAIL = authorEmail;
+    env.GIT_COMMITTER_EMAIL = authorEmail;
+  }
+
+  try {
+    const commitArgs = noVerify ? ["--no-verify"] : [];
+    await $`git commit ${commitArgs} -m ${message}`.cwd(workdir).env(env).text();
+  } catch (error) {
+    const gitOutput = formatGitCommandOutput(error);
+    const errorDetails = [error instanceof Error ? error.message.trim() : "", gitOutput].filter(Boolean).join("\n\n");
+
+    // Check if this is an author identity error
+    const errorStr = errorDetails || String(error);
+    if (errorStr.includes("Author identity unknown") || errorStr.includes("user.email") || errorStr.includes("user.name")) {
+      return {
+        ok: false,
+        error: "Git author identity not configured.\n\n" +
+          "Please configure Git with your identity:\n" +
+          "  git config --global user.name \"Your Name\"\n" +
+          "  git config --global user.email \"your.email@example.com\"\n\n" +
+          "Or set them in the chronicle config:\n" +
+          "  chronicle config set git.authorName \"Your Name\"\n" +
+          "  chronicle config set git.authorEmail \"your.email@example.com\"" +
+          (gitOutput ? `\n\nGit output:\n${gitOutput}` : ""),
+      };
+    }
+    return {
+      ok: false,
+      error: `git commit failed${errorDetails ? `\n\n${errorDetails}` : ""}`,
+    };
+  }
+
+  // Get the commit hash after commit is created
+  const hashResult = await $`git rev-parse HEAD`.cwd(workdir).text();
+  return { ok: true, value: hashResult.trim() };
+}
+
+/**
+ * Rollback hunks by unstaging them and resetting to HEAD.
+ */
+export async function rollbackHunks(
+  hunkIds: string[],
+  cwd?: string,
+): Promise<GitResult<void>> {
+  const workdir = cwd ?? process.cwd();
+  const gitRoot = await getGitRoot(workdir);
+
+  try {
+    // Reset index to HEAD to unstage everything
+    await $`git reset HEAD`.cwd(gitRoot).quiet();
+    return { ok: true, value: undefined };
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Failed to rollback hunks: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
 }
 
 /**
