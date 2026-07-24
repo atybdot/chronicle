@@ -72,7 +72,10 @@ export type CommitMessage = z.infer<typeof CommitMessageSchema>;
 // Timestamp assignment for a commit (spec-compliant)
 export const TimestampAssignmentSchema = z.object({
   groupId: z.string(),
-  date: z.string(), // ISO date string
+  commitDate: z.string(), // ISO 8601 with timezone
+  authorDate: z.string(), // ISO 8601 with timezone
+  commitDateTz: z.string(), // timezone offset (e.g., "+05:00")
+  authorDateTz: z.string(), // timezone offset (e.g., "+05:00")
   sessionId: z.string(), // Groups commits into coding sessions
 });
 export type TimestampAssignment = z.infer<typeof TimestampAssignmentSchema>;
