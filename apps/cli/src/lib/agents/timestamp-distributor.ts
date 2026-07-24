@@ -37,6 +37,15 @@ function getTimezoneOffset(date: Date): string {
   return `${sign}${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
+function skipWeekend(date: Date): Date {
+  const result = new Date(date);
+  if (isWeekend(result)) {
+    const daysUntilMonday = (8 - result.getUTCDay()) % 7 || 7;
+    result.setUTCDate(result.getUTCDate() + daysUntilMonday);
+  }
+  return result;
+}
+
 function generateTimestamp(
   dateRange: DateRange,
   workHours: { start: number; end: number },
@@ -56,12 +65,13 @@ function generateTimestamp(
     date.setUTCHours(hour, minute, 0, 0);
   }
   
-  if (excludeWeekends && isWeekend(date)) {
-    const daysUntilMonday = (8 - date.getUTCDay()) % 7 || 7;
-    date.setUTCDate(date.getUTCDate() + daysUntilMonday);
-    const hour = randomBetween(workHours.start, workHours.end - 1);
-    const minute = randomBetween(0, 59);
-    date.setUTCHours(hour, minute, 0, 0);
+  if (excludeWeekends) {
+    date = skipWeekend(date);
+    if (!isWithinWorkHours(date, workHours.start, workHours.end)) {
+      const hour = randomBetween(workHours.start, workHours.end - 1);
+      const minute = randomBetween(0, 59);
+      date.setUTCHours(hour, minute, 0, 0);
+    }
   }
   
   return date;
@@ -98,7 +108,8 @@ function sortByDependencies(groups: CommitGroup[]): CommitGroup[] {
 function addSpacing(
   timestamps: TimestampAssignment[],
   clusterCommits: boolean,
-  dateRange: DateRange
+  dateRange: DateRange,
+  excludeWeekends: boolean
 ): TimestampAssignment[] {
   if (timestamps.length <= 1) return timestamps;
   
@@ -140,9 +151,17 @@ function addSpacing(
       }
     }
     
+    // Skip weekends if needed
+    if (excludeWeekends) {
+      newDate = skipWeekend(newDate);
+    }
+    
     // Clamp to date range
     if (newDate.getTime() > endTime) {
       newDate = new Date(endTime);
+      if (excludeWeekends) {
+        newDate = skipWeekend(newDate);
+      }
     }
     
     curr.commitDate = newDate.toISOString();
@@ -188,7 +207,12 @@ export const TimestampDistributor = {
       });
     }
     
-    const spacedTimestamps = addSpacing(timestamps, pattern.clusterCommits, dateRange);
+    const spacedTimestamps = addSpacing(
+      timestamps,
+      pattern.clusterCommits,
+      dateRange,
+      pattern.excludeWeekends
+    );
     
     return { timestamps: spacedTimestamps };
   },
