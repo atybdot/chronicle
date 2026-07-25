@@ -16,11 +16,12 @@ type GetHunksDetailResult = {
 };
 
 type HunkState = {
+  header: string;
+  content: string;
   newStart: number;
   newEnd: number;
   addedLines: number;
   removedLines: number;
-  contentLines: string[];
 };
 
 const ASSET_EXTENSIONS = new Set([
@@ -55,8 +56,8 @@ function createHunkFromState(
   status: FileChange["status"],
   hunkIndex: number,
 ): Hunk {
-  // Include file path and hunk index to ensure uniqueness for empty hunks
-  const hashInput = `${filePath}:${hunkIndex}:${state.contentLines.join("\n")}`;
+  // Use same formula as git.ts: SHA-256 of header + content
+  const hashInput = state.header + "\n" + state.content;
   return {
     id: computeHunkId(hashInput),
     filePath,
@@ -83,11 +84,14 @@ function extractHunksFromFile(
   const lines = diff.split("\n");
   let currentHunk: HunkState | null = null;
   let hunkIndex = 0;
+  let contentBuffer: string[] = [];
   
   for (const line of lines) {
     if (line.startsWith("@@")) {
       // Save previous hunk if exists
       if (currentHunk) {
+        // Match git.ts convention: content ends with trailing \n
+        currentHunk.content = contentBuffer.join("\n") + "\n";
         hunks.push(createHunkFromState(currentHunk, filePath, status, hunkIndex));
         hunkIndex++;
       }
@@ -96,15 +100,17 @@ function extractHunksFromFile(
       const match = line.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
       if (match && match[1]) {
         currentHunk = {
+          header: line,
+          content: "",
           newStart: parseInt(match[1], 10),
           newEnd: match[2] ? parseInt(match[2], 10) : parseInt(match[1], 10),
           addedLines: 0,
           removedLines: 0,
-          contentLines: [], // Exclude @@ header from hash content
         };
+        contentBuffer = [];
       }
     } else if (currentHunk) {
-      currentHunk.contentLines.push(line);
+      contentBuffer.push(line);
       if (line.startsWith("+")) {
         currentHunk.addedLines++;
       } else if (line.startsWith("-")) {
@@ -115,6 +121,7 @@ function extractHunksFromFile(
   
   // Save last hunk
   if (currentHunk) {
+    currentHunk.content = contentBuffer.join("\n") + "\n";
     hunks.push(createHunkFromState(currentHunk, filePath, status, hunkIndex));
   }
   
@@ -137,6 +144,7 @@ function createHunkSummary(
   return {
     id: `${filePath}-${hunks.length}`,
     filePath,
+    hunkIds: hunks.map(h => h.id),
     hunkCount: hunks.length,
     addedTotal,
     removedTotal,
@@ -265,27 +273,66 @@ export async function runFileAnalyzer(cwd?: string): Promise<FileAnalyzerResult>
     status: fd.status as FileChange["status"],
   }));
   
-  // Create diffs map
+  // Create diffs map for classification
   const diffs = new Map<string, string>();
   for (const fd of fileDiffs) {
-    // Combine all hunk content for this file
-    const diffContent = fd.hunks.map(h => h.content).join("\n");
+    const diffContent = fd.hunks.map(h => h.header + "\n" + h.content).join("\n");
     diffs.set(fd.filePath, diffContent);
   }
   
-  // Classify files and extract hunks - wrap in try/catch for safety
+  // Classify files - wrap in try/catch for safety
+  let classifications: Map<string, FileClassification>;
   try {
-    const classifications = classifyChangedFiles(files, diffs);
-    const { hunks, summaries } = extractHunksFromChanges(files, diffs, classifications);
-    
-    return {
-      hunks,
-      summaries,
-      classifications,
-    };
+    classifications = classifyChangedFiles(files, diffs);
   } catch (error) {
     return {
-      error: `Analysis failed: ${error instanceof Error ? error.message : String(error)}`,
+      error: `Classification failed: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
+  
+  // Create Hunk objects directly from FileDiff to avoid string round-trip
+  // This ensures hunk IDs match what git.ts computes (SHA-256 of header + content)
+  const allHunks: Hunk[] = [];
+  const allSummaries: HunkSummary[] = [];
+  
+  for (const fd of fileDiffs) {
+    const classification = classifications.get(fd.filePath);
+    if (classification?.kind !== "analyzable") continue;
+    
+    const hunks: Hunk[] = [];
+    for (let i = 0; i < fd.hunks.length; i++) {
+      const h = fd.hunks[i];
+      // Use same formula as git.ts: SHA-256 of header + content
+      const hashInput = h.header + "\n" + h.content;
+      const addedLines = (h.content.match(/^\+[^+]/gm) || []).length;
+      const removedLines = (h.content.match(/^-[^-]/gm) || []).length;
+      
+      hunks.push({
+        id: computeHunkId(hashInput),
+        filePath: fd.filePath,
+        status: fd.status as FileChange["status"],
+        hunkIndex: i,
+        newStart: h.startLine,
+        newEnd: h.endLine,
+        addedLines,
+        removedLines,
+        changeType: addedLines > 0 && removedLines > 0 
+          ? "mixed" 
+          : addedLines > 0 
+            ? "addition" 
+            : "deletion",
+      });
+    }
+    
+    allHunks.push(...hunks);
+    if (hunks.length > 0) {
+      allSummaries.push(createHunkSummary(hunks, fd.filePath));
+    }
+  }
+  
+  return {
+    hunks: allHunks,
+    summaries: allSummaries,
+    classifications,
+  };
 }

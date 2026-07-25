@@ -147,19 +147,19 @@ describe("FileAnalyzer", () => {
         { path: "src/index.ts", status: "modified" },
       ];
       
-      // Same content, different line positions
+      // Same content AND same line positions
       const diffs1 = new Map<string, string>();
       diffs1.set("src/index.ts", "@@ -1,3 +1,4 @@\n line1\n+new line\n line2\n line3");
       
       const diffs2 = new Map<string, string>();
-      diffs2.set("src/index.ts", "@@ -10,3 +10,4 @@\n line1\n+new line\n line2\n line3");
+      diffs2.set("src/index.ts", "@@ -1,3 +1,4 @@\n line1\n+new line\n line2\n line3");
 
       const classifications = makeClassifications("src/index.ts");
 
       const { hunks: hunks1 } = extractHunksFromChanges(files, diffs1, classifications);
       const { hunks: hunks2 } = extractHunksFromChanges(files, diffs2, classifications);
 
-      // Same diff content at different positions should produce same ID
+      // Same diff content at same positions should produce same ID
       expect(hunks1[0]?.id).toBe(hunks2[0]?.id);
     });
 
@@ -183,7 +183,7 @@ describe("FileAnalyzer", () => {
       expect(hunks1[0]?.id).not.toBe(hunks2[0]?.id);
     });
 
-    test("hash excludes @@ header line", () => {
+    test("hash includes @@ header line per spec", () => {
       const files: FileChange[] = [
         { path: "src/index.ts", status: "modified" },
       ];
@@ -200,8 +200,8 @@ describe("FileAnalyzer", () => {
       const { hunks: hunks1 } = extractHunksFromChanges(files, diffs1, classifications);
       const { hunks: hunks2 } = extractHunksFromChanges(files, diffs2, classifications);
 
-      // Hash should only include diff content, not @@ header
-      expect(hunks1[0]?.id).toBe(hunks2[0]?.id);
+      // Hash includes @@ header per spec, so different headers → different IDs
+      expect(hunks1[0]?.id).not.toBe(hunks2[0]?.id);
     });
   });
 

@@ -45,6 +45,7 @@ export type Hunk = z.infer<typeof HunkSchema>;
 export const HunkSummarySchema = z.object({
   id: z.string(),
   filePath: z.string(),
+  hunkIds: z.array(z.string()), // SHA-256 IDs of individual hunks
   hunkCount: z.number(),
   addedTotal: z.number(),
   removedTotal: z.number(),
@@ -178,6 +179,7 @@ export type PlanHash = string;
 export const AgentCommitPlanSchema = z.object({
   planHash: z.string(),
   groups: z.array(CommitGroupSchema),
+  messages: z.array(CommitMessageSchema),
   timestampAssignments: z.array(TimestampAssignmentSchema),
   auditSignals: z.array(AuditSignalSchema),
   version: z.literal(1),

@@ -120,7 +120,7 @@ export const CommitPlanner = {
         id: groupId,
         name,
         description: `${name} in ${filePaths.join(", ")}`,
-        hunkIds: groupSummaries.map(s => s.id),
+        hunkIds: groupSummaries.flatMap(s => s.hunkIds),
         filePaths,
         category,
         order,
