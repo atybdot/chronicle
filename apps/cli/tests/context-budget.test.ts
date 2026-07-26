@@ -53,6 +53,12 @@ describe("Context Budget", () => {
       expect(result.detail).toBe("full");
       expect(result.maxPasses).toBe(1);
     });
+
+    it("should handle very small effective limit", () => {
+      const result = calculateAnalysisStrategy(500, 4000);
+      expect(result.detail).toBe("compact");
+      expect(result.maxPasses).toBeGreaterThanOrEqual(1);
+    });
   });
 
   describe("batchHunksForAnalysis", () => {
@@ -117,6 +123,24 @@ describe("Context Budget", () => {
       const batches = batchHunksForAnalysis(hunks, strategy);
 
       expect(batches.length).toBe(0);
+    });
+
+    it("should return single batch when fewer hunks than limit", () => {
+      const hunks: HunkSummary[] = [
+        { id: "hunk-0", filePath: "a.ts", hunkIds: ["h0"], hunkCount: 1, addedTotal: 10, removedTotal: 5, semanticLabels: [], preview: "" },
+        { id: "hunk-1", filePath: "b.ts", hunkIds: ["h1"], hunkCount: 1, addedTotal: 10, removedTotal: 5, semanticLabels: [], preview: "" },
+      ];
+      const strategy = {
+        detail: "full" as const,
+        maxPasses: 1,
+        maxHunksPerPass: 10,
+        estimatedTokensPerHunk: 100,
+      };
+
+      const batches = batchHunksForAnalysis(hunks, strategy);
+
+      expect(batches.length).toBe(1);
+      expect(batches[0]?.length).toBe(2);
     });
   });
 

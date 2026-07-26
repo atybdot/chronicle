@@ -294,4 +294,43 @@ describe("PlanCache", () => {
       }
     });
   });
+
+  describe("edge cases", () => {
+    test("returns error for corrupted cache file", async () => {
+      const fs = await import("fs");
+      const cacheDir = join(tempDir, "plans");
+      fs.mkdirSync(cacheDir, { recursive: true });
+      fs.writeFileSync(join(cacheDir, "corrupted-hash.json"), "not valid json {{{");
+
+      const result = await PlanCache.getCachedPlan("corrupted-hash");
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toContain("Failed to read cached plan");
+      }
+    });
+
+    test("handles very large plan with 100+ groups", async () => {
+      const groups = Array.from({ length: 120 }, (_, i) => ({
+        id: `group-${i}`,
+        name: `Group ${i}`,
+        description: `Description for group ${i}`,
+        hunkIds: [`hunk-${i}`],
+        filePaths: [`src/file-${i}.ts`],
+        category: "chore" as const,
+        order: i,
+        dependencies: [],
+      }));
+
+      const plan = createPlan({ planHash: "large-plan", groups });
+      const writeResult = await PlanCache.writePlanCache(plan, "large-plan");
+      expect(writeResult.ok).toBe(true);
+
+      const readResult = await PlanCache.getCachedPlan("large-plan");
+      expect(readResult.ok).toBe(true);
+      if (readResult.ok) {
+        expect(readResult.value?.groups.length).toBe(120);
+      }
+    });
+  });
 });

@@ -177,6 +177,26 @@ describe("Hunk Ledger", () => {
         expect(result.error).toContain("not pending");
       }
     });
+
+    it("should be a no-op with empty array", async () => {
+      const ledger: HunkLedger = {
+        gitDiffHash: "diff-hash-1",
+        configHash: "config-hash-1",
+        hunks: {
+          "hunk-1": { id: "hunk-1", file: "src/a.ts", hunkIndex: 0, status: "pending", commitId: null },
+        },
+        newFiles: {},
+        commits: {},
+        ledgerVersion: 1,
+      };
+
+      const result = markCommitted([], ledger, "commit-1");
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.hunks["hunk-1"]?.status).toBe("pending");
+      }
+    });
   });
 
   describe("rollbackHunks", () => {
@@ -222,6 +242,26 @@ describe("Hunk Ledger", () => {
         expect(result.error).toContain("not committed");
       }
     });
+
+    it("should be a no-op with empty array", async () => {
+      const ledger: HunkLedger = {
+        gitDiffHash: "diff-hash-1",
+        configHash: "config-hash-1",
+        hunks: {
+          "hunk-1": { id: "hunk-1", file: "src/a.ts", hunkIndex: 0, status: "committed", commitId: "commit-1" },
+        },
+        newFiles: {},
+        commits: {},
+        ledgerVersion: 1,
+      };
+
+      const result = rollbackHunks([], ledger);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.hunks["hunk-1"]?.status).toBe("committed");
+      }
+    });
   });
 
   describe("verifyHunksPending", () => {
@@ -246,6 +286,47 @@ describe("Hunk Ledger", () => {
         expect(result.value).toEqual(["hunk-1", "hunk-3"]);
       }
     });
+
+    it("should return empty array with empty input", () => {
+      const ledger: HunkLedger = {
+        gitDiffHash: "diff-hash-1",
+        configHash: "config-hash-1",
+        hunks: {
+          "hunk-1": { id: "hunk-1", file: "src/a.ts", hunkIndex: 0, status: "pending", commitId: null },
+        },
+        newFiles: {},
+        commits: {},
+        ledgerVersion: 1,
+      };
+
+      const result = verifyHunksPending([], ledger);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toEqual([]);
+      }
+    });
+
+    it("should return empty array when all hunks are committed", () => {
+      const ledger: HunkLedger = {
+        gitDiffHash: "diff-hash-1",
+        configHash: "config-hash-1",
+        hunks: {
+          "hunk-1": { id: "hunk-1", file: "src/a.ts", hunkIndex: 0, status: "committed", commitId: "commit-1" },
+          "hunk-2": { id: "hunk-2", file: "src/b.ts", hunkIndex: 0, status: "committed", commitId: "commit-1" },
+        },
+        newFiles: {},
+        commits: {},
+        ledgerVersion: 1,
+      };
+
+      const result = verifyHunksPending(["hunk-1", "hunk-2"], ledger);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toEqual([]);
+      }
+    });
   });
 
   describe("getCommittedHunks", () => {
@@ -266,6 +347,23 @@ describe("Hunk Ledger", () => {
       const result = getCommittedHunks(ledger);
 
       expect(result).toEqual(["hunk-1", "hunk-3"]);
+    });
+
+    it("should return empty array when nothing committed", () => {
+      const ledger: HunkLedger = {
+        gitDiffHash: "diff-hash-1",
+        configHash: "config-hash-1",
+        hunks: {
+          "hunk-1": { id: "hunk-1", file: "src/a.ts", hunkIndex: 0, status: "pending", commitId: null },
+        },
+        newFiles: {},
+        commits: {},
+        ledgerVersion: 1,
+      };
+
+      const result = getCommittedHunks(ledger);
+
+      expect(result).toEqual([]);
     });
   });
 
@@ -296,6 +394,103 @@ describe("Hunk Ledger", () => {
         expect(result.value.hunks).toEqual(ledger.hunks);
         expect(result.value.newFiles).toEqual(ledger.newFiles);
         expect(result.value.commits).toEqual(ledger.commits);
+      }
+    });
+  });
+
+  describe("edge cases", () => {
+    it("should handle ledger with 0 hunks", async () => {
+      const ledger: HunkLedger = {
+        gitDiffHash: "diff-hash-1",
+        configHash: "config-hash-1",
+        hunks: {},
+        newFiles: {},
+        commits: {},
+        ledgerVersion: 1,
+      };
+
+      await writeLedger(ledger, tempDir);
+      const result = await readLedger(tempDir);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(Object.keys(result.value.hunks)).toHaveLength(0);
+      }
+    });
+
+    it("should handle ledger with 1000+ hunks", async () => {
+      const hunks: HunkLedger["hunks"] = {};
+      for (let i = 0; i < 1000; i++) {
+        hunks[`hunk-${i}`] = {
+          id: `hunk-${i}`,
+          file: `src/file-${i}.ts`,
+          hunkIndex: 0,
+          status: i % 2 === 0 ? "pending" : "committed",
+          commitId: i % 2 === 0 ? null : "commit-1",
+        };
+      }
+
+      const ledger: HunkLedger = {
+        gitDiffHash: "diff-hash-1",
+        configHash: "config-hash-1",
+        hunks,
+        newFiles: {},
+        commits: {},
+        ledgerVersion: 1,
+      };
+
+      const start = Date.now();
+      await writeLedger(ledger, tempDir);
+      const result = await readLedger(tempDir);
+      const elapsed = Date.now() - start;
+
+      expect(result.ok).toBe(true);
+      expect(elapsed).toBeLessThan(1000); // Should be fast
+      if (result.ok) {
+        expect(Object.keys(result.value.hunks)).toHaveLength(1000);
+      }
+    });
+
+    it("should return error for corrupted ledger file", async () => {
+      const chronicleDir = path.join(tempDir, ".chronicle");
+      fs.mkdirSync(chronicleDir, { recursive: true });
+      fs.writeFileSync(path.join(chronicleDir, "hunk-ledger.json"), "not valid json {{{");
+
+      const result = await readLedger(tempDir);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toContain("Failed to read ledger");
+      }
+    });
+
+    it("should handle ledger with unknown fields (forward compatibility)", async () => {
+      const ledger: HunkLedger = {
+        gitDiffHash: "diff-hash-1",
+        configHash: "config-hash-1",
+        hunks: {
+          "hunk-1": { id: "hunk-1", file: "src/a.ts", hunkIndex: 0, status: "pending", commitId: null },
+        },
+        newFiles: {},
+        commits: {},
+        ledgerVersion: 1,
+      };
+
+      await writeLedger(ledger, tempDir);
+
+      // Tamper with the file to add unknown fields
+      const ledgerPath = path.join(tempDir, ".chronicle", "hunk-ledger.json");
+      const content = JSON.parse(fs.readFileSync(ledgerPath, "utf-8"));
+      content.unknownField = "should be ignored";
+      content.nested = { future: "field" };
+      fs.writeFileSync(ledgerPath, JSON.stringify(content, null, 2));
+
+      const result = await readLedger(tempDir);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.gitDiffHash).toBe("diff-hash-1");
+        expect(result.value.hunks["hunk-1"]?.status).toBe("pending");
       }
     });
   });

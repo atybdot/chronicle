@@ -8,7 +8,6 @@ import {
   getGitStatus,
   createCommit,
 } from "../src/lib/git";
-import { __internal as backfillInternal } from "../src/commands/backfill";
 
 const TEST_TIMEOUT = 30000;
 
@@ -29,15 +28,6 @@ describe("Backfill Integration", () => {
     // Cleanup
     rmSync(testDir, { recursive: true, force: true });
   });
-
-  it.skip(
-    "should suggest at least one day per analyzable file when grouping stays atomic",
-    async () => {
-      // TODO: Reimplement with new orchestrator API
-      // (old backfillInternal.getMinimumSuggestedTimelineDays no longer exists)
-    },
-    TEST_TIMEOUT,
-  );
 
   it(
     "should detect git repository",
@@ -252,15 +242,6 @@ describe("Backfill Integration", () => {
       const status = await getGitStatus(testDir);
       // Git status returns directory entries with trailing slash for untracked dirs
       expect(status.untracked.some((f: string) => f.startsWith("src/"))).toBe(true);
-    },
-    TEST_TIMEOUT,
-  );
-
-  it.skip(
-    "should create deterministic fallback commits for remaining files",
-    async () => {
-      // TODO: Reimplement with new orchestrator API
-      // (old backfillInternal.createFallbackCommitsForRemainingChanges no longer exists)
     },
     TEST_TIMEOUT,
   );
