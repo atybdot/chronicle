@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Orchestrator } from "../src/lib/agents/orchestrator";
+import { PlanCache } from "../src/lib/cache";
 import { $ } from "bun";
 import { mkdtemp, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
@@ -222,8 +223,17 @@ describe("Orchestrator", () => {
 
       expect(analysisResult.ok).toBe(true);
       if (analysisResult.ok) {
+        // Create a proper AgentCommitPlan from analysis result
+        const plan = {
+          planHash: "test-hash",
+          groups: analysisResult.value.groups,
+          messages: analysisResult.value.messages,
+          timestampAssignments: analysisResult.value.timestampAssignments,
+          auditSignals: analysisResult.value.auditSignals,
+          version: 1 as const,
+        };
         const auditResult = await Orchestrator.runAuditPhase({
-          plan: analysisResult.value,
+          plan,
           repoRoot: tempDir,
         });
 
@@ -255,15 +265,41 @@ describe("Orchestrator", () => {
 
       expect(analysisResult.ok).toBe(true);
       if (analysisResult.ok) {
+        // Create a proper AgentCommitPlan from analysis result
+        const basePlan = {
+          planHash: "test-hash",
+          groups: analysisResult.value.groups.map(g => ({
+            id: g.id,
+            name: g.name ?? "default",
+            description: g.description ?? "default",
+            hunkIds: g.hunkIds,
+            filePaths: g.filePaths ?? [],
+            category: g.category ?? "chore" as const,
+            order: g.order ?? 0,
+            dependencies: g.dependencies ?? [],
+          })),
+          messages: analysisResult.value.messages ?? [],
+          timestampAssignments: analysisResult.value.timestampAssignments,
+          auditSignals: analysisResult.value.auditSignals,
+          version: 1 as const,
+        };
+
         // Modify plan to have overlapping hunks
+        const firstGroup = basePlan.groups[0];
+        if (!firstGroup) throw new Error("No groups in plan");
         const modifiedPlan = {
-          ...analysisResult.value,
+          ...basePlan,
           groups: [
-            ...analysisResult.value.groups,
+            ...basePlan.groups,
             {
-              ...analysisResult.value.groups[0],
               id: "duplicate-group",
-              hunkIds: analysisResult.value.groups[0]?.hunkIds ?? [],
+              name: firstGroup.name,
+              description: firstGroup.description,
+              hunkIds: [...firstGroup.hunkIds],
+              filePaths: [...firstGroup.filePaths],
+              category: firstGroup.category,
+              order: firstGroup.order,
+              dependencies: [...firstGroup.dependencies],
             },
           ],
         };
@@ -331,6 +367,148 @@ describe("Orchestrator", () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.iterations).toBeLessThanOrEqual(2);
+      }
+    });
+
+    test("returns fromCache flag", async () => {
+      await createInitialCommit();
+      await createChanges();
+      await createConfig({
+        llm: { selected: { provider: "openrouter" } },
+        defaults: {
+          messageStyle: "conventional",
+          intent: "feature development",
+          dateRange: {
+            start: "2024-01-15T09:00:00Z",
+            end: "2024-01-19T18:00:00Z",
+          },
+        },
+      });
+
+      // Clean up any existing cache
+      await PlanCache.invalidateAllCaches();
+
+      // First run - cache miss
+      const result1 = await Orchestrator.runFullPipeline({
+        repoRoot: tempDir,
+      });
+      expect(result1.ok).toBe(true);
+      if (result1.ok) {
+        expect(result1.value.fromCache).toBe(false);
+      }
+
+      // Second run - cache hit
+      const result2 = await Orchestrator.runFullPipeline({
+        repoRoot: tempDir,
+      });
+      expect(result2.ok).toBe(true);
+      if (result2.ok) {
+        expect(result2.value.fromCache).toBe(true);
+      }
+
+      // Clean up
+      await PlanCache.invalidateAllCaches();
+    });
+
+    test("regenerate flag invalidates cache", async () => {
+      await createInitialCommit();
+      await createChanges();
+      await createConfig({
+        llm: { selected: { provider: "openrouter" } },
+        defaults: {
+          messageStyle: "conventional",
+          intent: "feature development",
+          dateRange: {
+            start: "2024-01-15T09:00:00Z",
+            end: "2024-01-19T18:00:00Z",
+          },
+        },
+      });
+
+      // Clean up any existing cache
+      await PlanCache.invalidateAllCaches();
+
+      // First run
+      await Orchestrator.runFullPipeline({ repoRoot: tempDir });
+
+      // Second run with regenerate
+      const result = await Orchestrator.runFullPipeline({
+        repoRoot: tempDir,
+        regenerate: true,
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.fromCache).toBe(false);
+      }
+
+      // Clean up
+      await PlanCache.invalidateAllCaches();
+    });
+  });
+
+  describe("getPlanSummary", () => {
+    test("returns correct plan summary", async () => {
+      await createInitialCommit();
+      await createChanges();
+      await createConfig({
+        llm: { selected: { provider: "openrouter" } },
+        defaults: {
+          messageStyle: "conventional",
+          intent: "feature development",
+          dateRange: {
+            start: "2024-01-15T09:00:00Z",
+            end: "2024-01-19T18:00:00Z",
+          },
+        },
+      });
+
+      const pipelineResult = await Orchestrator.runFullPipeline({
+        repoRoot: tempDir,
+      });
+
+      expect(pipelineResult.ok).toBe(true);
+      if (pipelineResult.ok) {
+        const summary = Orchestrator.getPlanSummary(pipelineResult.value.plan);
+        expect(summary.commitCount).toBeGreaterThan(0);
+        expect(summary.fileCount).toBeGreaterThan(0);
+        expect(summary.messages.length).toBeGreaterThan(0);
+      }
+    });
+  });
+
+  describe("runExecutionPhase", () => {
+    test("dry-run returns plan without executing", async () => {
+      await createInitialCommit();
+      await createChanges();
+      await createConfig({
+        llm: { selected: { provider: "openrouter" } },
+        defaults: {
+          messageStyle: "conventional",
+          intent: "feature development",
+          dateRange: {
+            start: "2024-01-15T09:00:00Z",
+            end: "2024-01-19T18:00:00Z",
+          },
+        },
+      });
+
+      const pipelineResult = await Orchestrator.runFullPipeline({
+        repoRoot: tempDir,
+      });
+
+      expect(pipelineResult.ok).toBe(true);
+      if (pipelineResult.ok) {
+        const execResult = await Orchestrator.runExecutionPhase({
+          plan: pipelineResult.value.plan,
+          repoRoot: tempDir,
+          dryRun: true,
+        });
+
+        expect(execResult.ok).toBe(true);
+        if (execResult.ok) {
+          expect(execResult.value.status).toBe("dry-run");
+          expect(execResult.value.completedGroups.length).toBe(0);
+        }
       }
     });
   });

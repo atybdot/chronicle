@@ -27,6 +27,7 @@ function createPlan(overrides: Partial<AgentCommitPlan> = {}): AgentCommitPlan {
   return {
     planHash: "test-hash-123",
     groups: [],
+    messages: [],
     timestampAssignments: [],
     auditSignals: [],
     version: 1,
@@ -55,12 +56,14 @@ describe("PlanCache", () => {
   describe("computePlanHash", () => {
     test("produces consistent hashes for same inputs", () => {
       const config = {
-        llm: { selected: { provider: "openrouter" }, providers: [] },
+        llm: { selected: { provider: "openrouter" as const }, providers: [] },
+        git: {},
         defaults: {
-          messageStyle: "conventional" as const,
-          autoCommit: false,
-          backupBranch: true,
-          branchPrefix: "chronicle-backup",
+          distribution: "realistic" as const,
+          dryRun: true,
+          workHoursStart: 9,
+          workHoursEnd: 18,
+          excludeWeekends: false,
         },
       };
       const hash1 = PlanCache.computePlanHash(
@@ -81,12 +84,14 @@ describe("PlanCache", () => {
 
     test("produces different hashes when diff changes", () => {
       const config = {
-        llm: { selected: { provider: "openrouter" }, providers: [] },
+        llm: { selected: { provider: "openrouter" as const }, providers: [] },
+        git: {},
         defaults: {
-          messageStyle: "conventional" as const,
-          autoCommit: false,
-          backupBranch: true,
-          branchPrefix: "chronicle-backup",
+          distribution: "realistic" as const,
+          dryRun: true,
+          workHoursStart: 9,
+          workHoursEnd: 18,
+          excludeWeekends: false,
         },
       };
       const hash1 = PlanCache.computePlanHash(
@@ -107,12 +112,14 @@ describe("PlanCache", () => {
 
     test("produces different hashes when intent changes", () => {
       const config = {
-        llm: { selected: { provider: "openrouter" }, providers: [] },
+        llm: { selected: { provider: "openrouter" as const }, providers: [] },
+        git: {},
         defaults: {
-          messageStyle: "conventional" as const,
-          autoCommit: false,
-          backupBranch: true,
-          branchPrefix: "chronicle-backup",
+          distribution: "realistic" as const,
+          dryRun: true,
+          workHoursStart: 9,
+          workHoursEnd: 18,
+          excludeWeekends: false,
         },
       };
       const hash1 = PlanCache.computePlanHash(
@@ -133,12 +140,14 @@ describe("PlanCache", () => {
 
     test("produces different hashes when committed hunks change", () => {
       const config = {
-        llm: { selected: { provider: "openrouter" }, providers: [] },
+        llm: { selected: { provider: "openrouter" as const }, providers: [] },
+        git: {},
         defaults: {
-          messageStyle: "conventional" as const,
-          autoCommit: false,
-          backupBranch: true,
-          branchPrefix: "chronicle-backup",
+          distribution: "realistic" as const,
+          dryRun: true,
+          workHoursStart: 9,
+          workHoursEnd: 18,
+          excludeWeekends: false,
         },
       };
       const hash1 = PlanCache.computePlanHash(

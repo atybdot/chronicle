@@ -5,18 +5,21 @@ import type {
   TimestampAssignment,
   AuditSignal,
   AgentCommitPlan,
-  ChronicleConfig,
+  Config,
   HunkLedger,
   HunkSummary,
+  ExecutionState,
 } from "../../types";
 import { loadConfig } from "../config";
 import { getDiffs, parseDiffs, isGitRepo } from "../git";
 import { readLedger, writeLedger, verifyHunksPending } from "../hunk-ledger";
+import { PlanCache } from "../cache";
 import { runFileAnalyzer } from "./file-analyzer";
 import { CommitPlanner } from "./commit-planner";
 import { MessageWriter } from "./message-writer";
 import { TimestampDistributor } from "./timestamp-distributor";
 import { Auditor } from "./auditor";
+import { Executor } from "./executor";
 
 type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -31,6 +34,16 @@ type RunAuditInput = {
 
 type RunFullPipelineInput = {
   repoRoot: string;
+  dryRun?: boolean;
+  regenerate?: boolean;
+  resume?: boolean;
+};
+
+type RunExecutionInput = {
+  plan: AgentCommitPlan;
+  repoRoot: string;
+  dryRun?: boolean;
+  resume?: boolean;
 };
 
 type AnalysisResult = {
@@ -43,6 +56,23 @@ type AnalysisResult = {
 type PipelineResult = {
   plan: AgentCommitPlan;
   iterations: number;
+  fromCache: boolean;
+};
+
+type PlanSummary = {
+  commitCount: number;
+  dateRange: { start: string; end: string };
+  messages: Array<{ groupId: string; subject: string }>;
+  fileCount: number;
+  auditSignals: AuditSignal[];
+};
+
+type ExecutionResult = {
+  status: "complete" | "partial" | "dry-run" | "cancelled";
+  completedGroups: string[];
+  failedGroups: string[];
+  totalGroups: number;
+  ledger: HunkLedger;
 };
 
 function computeDiffHash(diffs: ReturnType<typeof parseDiffs>): string {
@@ -52,7 +82,7 @@ function computeDiffHash(diffs: ReturnType<typeof parseDiffs>): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
-function computeConfigHash(config: ChronicleConfig): string {
+function computeConfigHash(config: Config): string {
   return createHash("sha256").update(JSON.stringify(config)).digest("hex");
 }
 
@@ -169,7 +199,8 @@ export const Orchestrator = {
     const messages = MessageWriter.generateMessages(groups, styleReference);
 
     // Dispatch TimestampDistributor
-    const dateRange = config.defaults?.dateRange ?? {
+    // Config doesn't have dateRange, so use a default 7-day range
+    const dateRange = {
       start: new Date().toISOString(),
       end: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
     };
@@ -214,7 +245,94 @@ export const Orchestrator = {
   async runFullPipeline(
     input: RunFullPipelineInput
   ): Promise<Result<PipelineResult>> {
-    const { repoRoot } = input;
+    const { repoRoot, dryRun = false, regenerate = false, resume = false } = input;
+
+    // Load config
+    const config = await loadConfig();
+    const intent = config.defaults?.intent ?? "feature development";
+
+    // Get diffs for cache key
+    const diffs = await getDiffs(undefined, repoRoot);
+    if (diffs.length === 0) {
+      return { ok: false, error: "No changes to backfill" };
+    }
+
+    // Compute cache key
+    const diffHash = computeDiffHash(diffs);
+    const configHash = computeConfigHash(config);
+    const ledgerResult = await readLedger(repoRoot);
+    const committedHunkIds = ledgerResult.ok
+      ? Object.entries(ledgerResult.value.hunks)
+          .filter(([_, h]) => h.status === "committed")
+          .map(([id]) => id)
+      : [];
+    const combinedHash = createHash("sha256").update(diffHash + configHash).digest("hex");
+    const planHash = PlanCache.computePlanHash(combinedHash, config, intent, committedHunkIds);
+
+    // Check cache (skip if regenerate or resume)
+    let plan: AgentCommitPlan;
+    let fromCache = false;
+
+    if (!regenerate && !resume) {
+      const cachedPlan = await PlanCache.getCachedPlan(planHash);
+      if (cachedPlan.ok && cachedPlan.value) {
+        plan = cachedPlan.value;
+        fromCache = true;
+      } else {
+        // Cache miss - run analysis
+        const result = await Orchestrator.runPipelineWithAudit({ repoRoot, config, planHash });
+        if (!result.ok) return result;
+        plan = result.value.plan;
+
+        // Write to cache
+        await PlanCache.writePlanCache(plan, planHash);
+      }
+    } else if (resume) {
+      // Resume mode - load execution state
+      const executionState = await PlanCache.getExecutionState(planHash);
+      if (executionState.ok && executionState.value) {
+        // Load cached plan
+        const cachedPlan = await PlanCache.getCachedPlan(planHash);
+        if (cachedPlan.ok && cachedPlan.value) {
+          plan = cachedPlan.value;
+          fromCache = true;
+        } else {
+          // No cached plan for resume - run analysis
+          const result = await Orchestrator.runPipelineWithAudit({ repoRoot, config, planHash });
+          if (!result.ok) return result;
+          plan = result.value.plan;
+          await PlanCache.writePlanCache(plan, planHash);
+        }
+      } else {
+        // No execution state - start fresh
+        const result = await Orchestrator.runPipelineWithAudit({ repoRoot, config, planHash });
+        if (!result.ok) return result;
+        plan = result.value.plan;
+        await PlanCache.writePlanCache(plan, planHash);
+      }
+    } else {
+      // Regenerate mode - invalidate cache and run fresh
+      await PlanCache.invalidateCache(planHash);
+      const result = await Orchestrator.runPipelineWithAudit({ repoRoot, config, planHash });
+      if (!result.ok) return result;
+      plan = result.value.plan;
+      await PlanCache.writePlanCache(plan, planHash);
+    }
+
+    return {
+      ok: true,
+      value: {
+        plan,
+        iterations: 1,
+        fromCache,
+      },
+    };
+  },
+
+  async runPipelineWithAudit(
+    input: RunAnalysisInput & { config: Config; planHash: string }
+  ): Promise<Result<{ plan: AgentCommitPlan; iterations: number }>> {
+    const { repoRoot, config, planHash } = input;
 
     // Run analysis phase
     const analysisResult = await Orchestrator.runAnalysisPhase({ repoRoot });
@@ -222,17 +340,7 @@ export const Orchestrator = {
       return analysisResult;
     }
 
-    // Load config for max iterations
-    const config = await loadConfig();
-    const maxIterations = (config.defaults as Record<string, unknown>)?.maxIterations ?? 3;
-
-    // Compute plan hash from groups, messages, and timestamps
-    const planContent = JSON.stringify({
-      groups: analysisResult.value.groups,
-      messages: analysisResult.value.messages,
-      timestamps: analysisResult.value.timestampAssignments,
-    });
-    const planHash = createHash("sha256").update(planContent).digest("hex");
+    const maxIterations = 3; // Default max iterations for audit loop
 
     let plan: AgentCommitPlan = {
       planHash,
@@ -284,11 +392,152 @@ export const Orchestrator = {
       }
     }
 
+    return { ok: true, value: { plan, iterations } };
+  },
+
+  getPlanSummary(plan: AgentCommitPlan): PlanSummary {
+    // Find date range from timestamp assignments
+    const dates = plan.timestampAssignments.map(t => new Date(t.commitDate));
+    const startDate = dates.length > 0 ? new Date(Math.min(...dates.map(d => d.getTime()))) : new Date();
+    const endDate = dates.length > 0 ? new Date(Math.max(...dates.map(d => d.getTime()))) : new Date();
+
+    // Count unique files
+    const fileSet = new Set<string>();
+    for (const group of plan.groups) {
+      for (const filePath of group.filePaths) {
+        fileSet.add(filePath);
+      }
+    }
+
+    return {
+      commitCount: plan.groups.length,
+      dateRange: {
+        start: startDate.toISOString(),
+        end: endDate.toISOString(),
+      },
+      messages: plan.messages.map(m => ({
+        groupId: m.groupId,
+        subject: m.subject,
+      })),
+      fileCount: fileSet.size,
+      auditSignals: plan.auditSignals,
+    };
+  },
+
+  async runExecutionPhase(
+    input: RunExecutionInput
+  ): Promise<Result<ExecutionResult>> {
+    const { plan, repoRoot, dryRun = false, resume = false } = input;
+
+    // Dry-run mode - return plan summary without executing
+    if (dryRun) {
+      const ledgerResult = await readLedger(repoRoot);
+      return {
+        ok: true,
+        value: {
+          status: "dry-run",
+          completedGroups: [],
+          failedGroups: [],
+          totalGroups: plan.groups.length,
+          ledger: ledgerResult.ok ? ledgerResult.value : {
+            gitDiffHash: "",
+            configHash: "",
+            hunks: {},
+            newFiles: {},
+            commits: {},
+            ledgerVersion: 1,
+          },
+        },
+      };
+    }
+
+    // Read ledger
+    const ledgerResult = await readLedger(repoRoot);
+    if (!ledgerResult.ok) {
+      return { ok: false, error: `Failed to read ledger: ${ledgerResult.error}` };
+    }
+    let ledger = ledgerResult.value;
+
+    // Get execution state for resume
+    let completedGroups: string[] = [];
+    let failedGroups: string[] = [];
+
+    if (resume) {
+      const executionState = await PlanCache.getExecutionState(plan.planHash);
+      if (executionState.ok && executionState.value) {
+        completedGroups = executionState.value.completedGroups;
+        failedGroups = executionState.value.failedGroups;
+      }
+    }
+
+    // Create backup branch
+    const backupResult = await Executor.createBackupBranch(repoRoot);
+    if (!backupResult.ok) {
+      return { ok: false, error: `Failed to create backup branch: ${backupResult.error}` };
+    }
+
+    // Execute groups in order
+    const sortedGroups = [...plan.groups].sort((a, b) => a.order - b.order);
+
+    // Get diffs for executor
+    const diffs = await getDiffs(undefined, repoRoot);
+
+    for (const group of sortedGroups) {
+      // Skip already completed groups (resume mode)
+      if (completedGroups.includes(group.id)) {
+        continue;
+      }
+
+      // Find timestamp for this group
+      const timestamp = plan.timestampAssignments.find(t => t.groupId === group.id);
+      const date = timestamp?.commitDate ?? new Date().toISOString();
+
+      // Execute the group
+      const execResult = await Executor.executeGroup({
+        group,
+        ledger,
+        diffs,
+        date,
+        repoRoot,
+      });
+
+      if (execResult.ok) {
+        completedGroups.push(group.id);
+        ledger = execResult.value.ledger;
+
+        // Update execution state in cache
+        await PlanCache.updateExecutionState(plan.planHash, {
+          planHash: plan.planHash,
+          completedGroups,
+          failedGroups,
+          ledger,
+        });
+      } else {
+        failedGroups.push(group.id);
+
+        // Update execution state with failure
+        await PlanCache.updateExecutionState(plan.planHash, {
+          planHash: plan.planHash,
+          completedGroups,
+          failedGroups,
+          ledger,
+        });
+
+        // Continue with next group (don't stop on single failure)
+        console.warn(`Group ${group.id} failed: ${execResult.error}`);
+      }
+    }
+
+    const status = failedGroups.length === 0 ? "complete" : "partial";
+
     return {
       ok: true,
       value: {
-        plan,
-        iterations,
+        status,
+        completedGroups,
+        failedGroups,
+        totalGroups: sortedGroups.length,
+        ledger,
       },
     };
   },

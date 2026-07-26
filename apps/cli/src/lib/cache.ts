@@ -2,7 +2,7 @@ import { homedir } from "os";
 import { join } from "path";
 import { createHash } from "crypto";
 import { mkdir, rm, readdir, rename, unlink } from "fs/promises";
-import type { AgentCommitPlan, ChronicleConfig, ExecutionState } from "../types";
+import type { AgentCommitPlan, Config, ExecutionState } from "../types";
 
 function getCacheDir(): string {
   return process.env.CHRONICLE_CACHE_DIR ?? join(homedir(), ".cache", "chronicle");
@@ -245,7 +245,7 @@ export const PlanCache = {
    */
   computePlanHash(
     diff: string,
-    config: ChronicleConfig,
+    config: Config,
     intent: string,
     committedHunkIds: string[]
   ): string {

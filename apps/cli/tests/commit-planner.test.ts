@@ -26,6 +26,7 @@ describe("CommitPlanner", () => {
         {
           id: "src/auth.ts-1",
           filePath: "src/auth.ts",
+          hunkIds: ["abc123"],
           hunkCount: 1,
           addedTotal: 10,
           removedTotal: 2,
@@ -35,6 +36,7 @@ describe("CommitPlanner", () => {
         {
           id: "src/auth.test.ts-1",
           filePath: "src/auth.test.ts",
+          hunkIds: ["def456"],
           hunkCount: 1,
           addedTotal: 5,
           removedTotal: 0,
@@ -44,6 +46,7 @@ describe("CommitPlanner", () => {
         {
           id: "src/pagination.ts-1",
           filePath: "src/pagination.ts",
+          hunkIds: ["ghi789"],
           hunkCount: 1,
           addedTotal: 3,
           removedTotal: 3,
@@ -78,6 +81,7 @@ describe("CommitPlanner", () => {
         {
           id: "src/a.ts-1",
           filePath: "src/a.ts",
+          hunkIds: ["a1"],
           hunkCount: 1,
           addedTotal: 5,
           removedTotal: 0,
@@ -87,6 +91,7 @@ describe("CommitPlanner", () => {
         {
           id: "src/b.ts-1",
           filePath: "src/b.ts",
+          hunkIds: ["b1"],
           hunkCount: 1,
           addedTotal: 5,
           removedTotal: 0,
@@ -111,6 +116,7 @@ describe("CommitPlanner", () => {
         {
           id: "src/feature-a.ts-1",
           filePath: "src/feature-a.ts",
+          hunkIds: ["fa1"],
           hunkCount: 1,
           addedTotal: 10,
           removedTotal: 0,
@@ -120,6 +126,7 @@ describe("CommitPlanner", () => {
         {
           id: "src/feature-b.ts-1",
           filePath: "src/feature-b.ts",
+          hunkIds: ["fb1"],
           hunkCount: 1,
           addedTotal: 10,
           removedTotal: 0,
@@ -150,6 +157,7 @@ describe("CommitPlanner", () => {
         {
           id: "src/single.ts-1",
           filePath: "src/single.ts",
+          hunkIds: ["s1"],
           hunkCount: 1,
           addedTotal: 5,
           removedTotal: 2,

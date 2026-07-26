@@ -60,6 +60,7 @@ describe("Context Budget", () => {
       const hunks: HunkSummary[] = Array.from({ length: 10 }, (_, i) => ({
         id: `hunk-${i}`,
         filePath: `src/file-${i}.ts`,
+        hunkIds: [`hash-${i}`],
         hunkCount: 1,
         addedTotal: 10,
         removedTotal: 5,
@@ -85,9 +86,9 @@ describe("Context Budget", () => {
 
     it("should preserve hunk order within batches", () => {
       const hunks: HunkSummary[] = [
-        { id: "hunk-0", filePath: "a.ts", hunkCount: 1, addedTotal: 10, removedTotal: 5, semanticLabels: [], preview: "" },
-        { id: "hunk-1", filePath: "b.ts", hunkCount: 1, addedTotal: 10, removedTotal: 5, semanticLabels: [], preview: "" },
-        { id: "hunk-2", filePath: "c.ts", hunkCount: 1, addedTotal: 10, removedTotal: 5, semanticLabels: [], preview: "" },
+        { id: "hunk-0", filePath: "a.ts", hunkIds: ["h0"], hunkCount: 1, addedTotal: 10, removedTotal: 5, semanticLabels: [], preview: "" },
+        { id: "hunk-1", filePath: "b.ts", hunkIds: ["h1"], hunkCount: 1, addedTotal: 10, removedTotal: 5, semanticLabels: [], preview: "" },
+        { id: "hunk-2", filePath: "c.ts", hunkIds: ["h2"], hunkCount: 1, addedTotal: 10, removedTotal: 5, semanticLabels: [], preview: "" },
       ];
 
       const strategy = {
@@ -123,11 +124,11 @@ describe("Context Budget", () => {
     it("should flatten correctly and preserve order", () => {
       const batches: HunkSummary[][] = [
         [
-          { id: "hunk-0", filePath: "a.ts", hunkCount: 1, addedTotal: 10, removedTotal: 5, semanticLabels: [], preview: "" },
-          { id: "hunk-1", filePath: "b.ts", hunkCount: 1, addedTotal: 10, removedTotal: 5, semanticLabels: [], preview: "" },
+          { id: "hunk-0", filePath: "a.ts", hunkIds: ["h0"], hunkCount: 1, addedTotal: 10, removedTotal: 5, semanticLabels: [], preview: "" },
+          { id: "hunk-1", filePath: "b.ts", hunkIds: ["h1"], hunkCount: 1, addedTotal: 10, removedTotal: 5, semanticLabels: [], preview: "" },
         ],
         [
-          { id: "hunk-2", filePath: "c.ts", hunkCount: 1, addedTotal: 10, removedTotal: 5, semanticLabels: [], preview: "" },
+          { id: "hunk-2", filePath: "c.ts", hunkIds: ["h2"], hunkCount: 1, addedTotal: 10, removedTotal: 5, semanticLabels: [], preview: "" },
         ],
       ];
 

@@ -302,6 +302,7 @@ export async function runFileAnalyzer(cwd?: string): Promise<FileAnalyzerResult>
     const hunks: Hunk[] = [];
     for (let i = 0; i < fd.hunks.length; i++) {
       const h = fd.hunks[i];
+      if (!h) continue;
       // Use same formula as git.ts: SHA-256 of header + content
       const hashInput = h.header + "\n" + h.content;
       const addedLines = (h.content.match(/^\+[^+]/gm) || []).length;
