@@ -202,49 +202,8 @@ export const AgentRolesConfigSchema = z.record(
 ).optional();
 export type AgentRolesConfig = z.infer<typeof AgentRolesConfigSchema>;
 
-// Extended Chronicle config for multi-agent architecture
-export const ChronicleConfigSchema = z.object({
-  llm: z.object({
-    selected: z
-      .object({
-        provider: z.string(),
-        model: z.string().optional(),
-      })
-      .default({ provider: "openrouter" }),
-    providers: z
-      .array(
-        z.object({
-          name: z.string(),
-          API_TOKEN: z.string().optional(),
-          model: z.string().optional(),
-          baseUrl: z.string().optional(),
-          accountId: z.string().optional(),
-          gatewayId: z.string().optional(),
-        }),
-      )
-      .default([]),
-    agentRoles: AgentRolesConfigSchema.optional(),
-  }),
-  defaults: z.object({
-    intent: z.string().optional(),
-    dateRange: z
-      .object({
-        start: z.string(),
-        end: z.string(),
-      })
-      .optional(),
-    excludePatterns: z.array(z.string()).optional(),
-    messageStyle: z.enum(["conventional", "descriptive", "terse"]).default("conventional"),
-    autoCommit: z.boolean().default(false),
-    backupBranch: z.boolean().default(true),
-    branchPrefix: z.string().default("chronicle-backup"),
-    output: z.string().optional(),
-  }),
-});
-export type ChronicleConfig = z.infer<typeof ChronicleConfigSchema>;
-
 // ============================================================================
-// Legacy Types (kept for backward compatibility - to be deleted per sub-ticket)
+// Legacy Types (kept for backward compatibility)
 // ============================================================================
 
 export interface LineRange {

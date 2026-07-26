@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (Types & Schemas must be implemented first)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Context:** The current `apps/cli/src/types/index.ts` has two `FileChangeSchema` definitions:
 1. The new multi-agent version at the top (lines 20-28) with `additions`, `deletions`, `oldPath`, `diff` fields

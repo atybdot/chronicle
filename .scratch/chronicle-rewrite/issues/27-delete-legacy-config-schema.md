@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (Types & Schemas must be implemented first)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Context:** The current `apps/cli/src/types/index.ts` has two config schema definitions:
 1. The new `ChronicleConfigSchema` (lines 151-189) for the multi-agent architecture
