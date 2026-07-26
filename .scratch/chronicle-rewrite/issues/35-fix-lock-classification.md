@@ -4,7 +4,7 @@
 
 **Blocked by:** 06 (FileAnalyzer)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Context:** In `file-analyzer.ts`, `ASSET_EXTENSIONS` includes `.lock`. In `file-classification.ts`, `.lock` is in `ANALYZABLE_EXTENSIONS`. Lock files (e.g., `bun.lock`, `package-lock.json`) are text-based and useful for understanding dependency changes.
 

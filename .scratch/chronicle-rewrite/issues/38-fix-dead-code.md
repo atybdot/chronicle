@@ -4,7 +4,7 @@
 
 **Blocked by:** 06 (FileAnalyzer)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Context:** 
 - `getFileChanges()` is a dead stub that returns empty array

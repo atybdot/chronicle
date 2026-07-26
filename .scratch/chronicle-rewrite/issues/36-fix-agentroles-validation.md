@@ -4,7 +4,7 @@
 
 **Blocked by:** 05 (Config Schema Extension)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Context:** The current Zod schema uses `z.object({ model: z.string().optional(), provider: z.string().optional() })` which allows empty objects. Need a refinement to enforce at least one field.
 

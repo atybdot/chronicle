@@ -4,7 +4,7 @@
 
 **Blocked by:** 06 (FileAnalyzer)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Context:** In `file-analyzer.ts`, the logic to push a hunk to the array appears twice: once inside the `@@` detection loop and once after the loop ends. This violates DRY.
 

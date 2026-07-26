@@ -4,7 +4,7 @@
 
 **Blocked by:** 05 (Config Schema Extension)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Context:** The `finally` block in the "handleConfigCacheClear removes all cache namespaces" test lost one indentation level, likely from a bad merge.
 

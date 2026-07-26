@@ -4,7 +4,7 @@
 
 **Blocked by:** 06 (FileAnalyzer)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Context:** The spec says the agent should "Return error if git status fails". Currently, git failures propagate unhandled, which could crash the CLI.
 

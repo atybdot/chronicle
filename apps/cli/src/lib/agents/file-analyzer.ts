@@ -75,6 +75,19 @@ function createHunkFromState(
   };
 }
 
+function pushHunk(
+  currentHunk: HunkState,
+  contentBuffer: string[],
+  filePath: string,
+  status: FileChange["status"],
+  hunkIndex: number,
+  hunks: Hunk[]
+): void {
+  // Match git.ts convention: content ends with trailing \n
+  currentHunk.content = contentBuffer.join("\n") + "\n";
+  hunks.push(createHunkFromState(currentHunk, filePath, status, hunkIndex));
+}
+
 function extractHunksFromFile(
   filePath: string,
   diff: string,
@@ -90,9 +103,7 @@ function extractHunksFromFile(
     if (line.startsWith("@@")) {
       // Save previous hunk if exists
       if (currentHunk) {
-        // Match git.ts convention: content ends with trailing \n
-        currentHunk.content = contentBuffer.join("\n") + "\n";
-        hunks.push(createHunkFromState(currentHunk, filePath, status, hunkIndex));
+        pushHunk(currentHunk, contentBuffer, filePath, status, hunkIndex, hunks);
         hunkIndex++;
       }
       
@@ -121,8 +132,7 @@ function extractHunksFromFile(
   
   // Save last hunk
   if (currentHunk) {
-    currentHunk.content = contentBuffer.join("\n") + "\n";
-    hunks.push(createHunkFromState(currentHunk, filePath, status, hunkIndex));
+    pushHunk(currentHunk, contentBuffer, filePath, status, hunkIndex, hunks);
   }
   
   return hunks;

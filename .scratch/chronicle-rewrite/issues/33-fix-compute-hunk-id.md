@@ -4,7 +4,7 @@
 
 **Blocked by:** 06 (FileAnalyzer)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Context:** The spec says: "Each hunk gets a content-based ID via `computeHunkId(diffContent)`". The current implementation hashes line numbers, which means:
 - Same content at different line positions produces different IDs
