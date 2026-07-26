@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 (Git Utilities), 16 (CLI Command)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Context:** This is the end-to-end test that exercises the complete pipeline from CLI invocation to git commits. It mocks AI at the transport level (Vercel AI SDK) so the test is deterministic but exercises all real code paths.
 

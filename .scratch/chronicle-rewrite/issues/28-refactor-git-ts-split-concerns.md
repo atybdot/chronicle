@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 (Git Utilities must be implemented first)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Context:** The current `apps/cli/src/lib/git.ts` file has grown to 800+ lines with multiple responsibilities:
 1. Git operations (status, diff, commit, branch)
