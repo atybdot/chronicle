@@ -165,18 +165,23 @@ export function logout() { return false; }`,
               provider: "openai",
               model: "gpt-4",
             },
-            providers: {},
+            providers: [],
             customPrompt: "",
             agentRoles: {
-              fileAnalyzer: "file-analyzer",
-              commitPlanner: "commit-planner",
-              messageWriter: "message-writer",
-              timestampDistributor: "timestamp-distributor",
-              auditor: "auditor",
-              executor: "executor",
+              fileAnalyzer: { model: "gpt-4", provider: "openai" },
+              commitPlanner: { model: "gpt-4", provider: "openai" },
+              messageWriter: { model: "gpt-4", provider: "openai" },
+              timestampDistributor: { model: "gpt-4", provider: "openai" },
+              auditor: { model: "gpt-4", provider: "openai" },
+              executor: { model: "gpt-4", provider: "openai" },
             },
           },
           defaults: {
+            distribution: "realistic",
+            dryRun: false,
+            workHoursStart: 9,
+            workHoursEnd: 17,
+            excludeWeekends: true,
             intent: "feature development",
           },
           git: {
@@ -267,8 +272,10 @@ export function helper() {
         // Parse the diff
         const parsedDiffs = parseDiffs(diffText);
         expect(parsedDiffs.length).toBe(1);
-        expect(parsedDiffs[0].filePath).toBe("src/app.ts");
-        expect(parsedDiffs[0].hunks.length).toBeGreaterThan(0);
+        const firstDiff = parsedDiffs[0];
+        expect(firstDiff).toBeDefined();
+        expect(firstDiff?.filePath).toBe("src/app.ts");
+        expect(firstDiff?.hunks.length).toBeGreaterThan(0);
       },
       TEST_TIMEOUT,
     );
