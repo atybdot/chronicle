@@ -5,7 +5,7 @@ interface CopyBtnProps {
   className?: string;
 }
 
-export default function CopyBtn({ text = 'npm install -g chronicle', className = '' }: CopyBtnProps) {
+export default function CopyBtn({ text = 'bun add -g @atybdot/chronicle', className = '' }: CopyBtnProps) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(async () => {
