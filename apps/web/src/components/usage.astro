@@ -1,7 +1,10 @@
 ---
 import { Code } from "astro:components";
-const usage = `# Install
-npm install -g @atybdot/chronicle
+const usage = `# Install Bun, then Chronicle
+curl -fsSL https://bun.sh/install | bash
+# Windows (PowerShell)
+powershell -c "irm bun.sh/install.ps1 | iex"
+bun add -g @atybdot/chronicle
 
 # Configure a provider
 chronicle config init

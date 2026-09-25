@@ -6,7 +6,10 @@ import Features from "@/components/features.astro";
 import { Code } from "astro:components";
 import Usage from "@/components/usage.astro";
 import Command from "@/components/command.astro";
-const installCode = "bun i -g @atybdot/chronicle";
+const installCode = `curl -fsSL https://bun.sh/install | bash
+# Windows (PowerShell)
+powershell -c "irm bun.sh/install.ps1 | iex"
+bun add -g @atybdot/chronicle`;
 ---
 
 <IndexLayout>
@@ -21,10 +24,10 @@ const installCode = "bun i -g @atybdot/chronicle";
           transform uncommitted changes into atomic, well-organized commits with
           realistic timestamps using AI.
         </h2>
-        <div class="relative overflow-hidden rounded-lg">
+        <div class="install-code relative overflow-hidden rounded-lg">
           <Code
             code={installCode}
-            class="flex-1 px-4 py-3 **:bg-transparent! bg-zinc-900! text-sm sm:text-base"
+            class="flex-1 py-3 pl-4 pr-10 **:bg-transparent! bg-zinc-900! text-sm"
             theme={"ayu-mirage"}
             lang="bash"
           />
@@ -32,7 +35,7 @@ const installCode = "bun i -g @atybdot/chronicle";
           <CopyBtn
             client:load
             transition:persist
-            className=" absolute z-10! right-4 top-1/2 -translate-y-1/2"
+            className=" absolute z-10! right-3 top-3"
             text={installCode}
           />
         </div>
@@ -45,3 +48,11 @@ const installCode = "bun i -g @atybdot/chronicle";
     <Command />
   </main>
 </IndexLayout>
+
+<style>
+  .install-code :global(pre),
+  .install-code :global(code) {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+</style>

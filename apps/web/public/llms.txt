@@ -11,6 +11,8 @@ Chronicle is an AI-powered CLI that turns uncommitted changes into atomic git co
 
 ## Installation
 
+Requires Bun (https://bun.sh).
+
 ```bash
 bun i -g @atybdot/chronicle
 ```
