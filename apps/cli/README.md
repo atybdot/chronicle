@@ -17,16 +17,23 @@ AI-powered CLI that transforms uncommitted changes into a realistic git commit h
 
 ## Installation
 
+Install [Bun](https://bun.sh), then open a new terminal.
+
 ```bash
-# Install Bun, then Chronicle
+# macOS / Linux
 curl -fsSL https://bun.sh/install | bash
+```
+
+```powershell
 # Windows (PowerShell)
 powershell -c "irm bun.sh/install.ps1 | iex"
-bun add -g @atybdot/chronicle
-
-# Or run it without a global install
-bunx @atybdot/chronicle
 ```
+
+```bash
+bun add -g @atybdot/chronicle
+```
+
+Or run it once without installing: `bunx @atybdot/chronicle`
 
 ## Quick Start
 

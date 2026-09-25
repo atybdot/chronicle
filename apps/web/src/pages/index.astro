@@ -6,10 +6,9 @@ import Features from "@/components/features.astro";
 import { Code } from "astro:components";
 import Usage from "@/components/usage.astro";
 import Command from "@/components/command.astro";
-const installCode = `curl -fsSL https://bun.sh/install | bash
-# Windows (PowerShell)
-powershell -c "irm bun.sh/install.ps1 | iex"
-bun add -g @atybdot/chronicle`;
+const bunUnix = "curl -fsSL https://bun.sh/install | bash";
+const bunWindows = 'powershell -c "irm bun.sh/install.ps1 | iex"';
+const installChronicle = "bun add -g @atybdot/chronicle";
 ---
 
 <IndexLayout>
@@ -24,20 +23,46 @@ bun add -g @atybdot/chronicle`;
           transform uncommitted changes into atomic, well-organized commits with
           realistic timestamps using AI.
         </h2>
-        <div class="install-code relative overflow-hidden rounded-lg">
-          <Code
-            code={installCode}
-            class="flex-1 py-3 pl-4 pr-10 **:bg-transparent! bg-zinc-900! text-sm"
-            theme={"ayu-mirage"}
-            lang="bash"
-          />
-
-          <CopyBtn
-            client:load
-            transition:persist
-            className=" absolute z-10! right-3 top-3"
-            text={installCode}
-          />
+        <div class="space-y-3">
+          <p class="text-sm text-zinc-500">
+            Install Bun, then open a new terminal.
+          </p>
+          <div class="install-cmd overflow-hidden rounded-lg">
+            <div class="flex justify-between items-center px-4 py-2 bg-zinc-800">
+              <span class="text-sm text-zinc-500">macOS / Linux</span>
+              <CopyBtn client:load transition:persist="copy-bun-unix" text={bunUnix} />
+            </div>
+            <Code
+              code={bunUnix}
+              class="px-4 py-3 **:bg-transparent! bg-zinc-900! text-sm"
+              theme={"ayu-mirage"}
+              lang="bash"
+            />
+          </div>
+          <div class="install-cmd overflow-hidden rounded-lg">
+            <div class="flex justify-between items-center px-4 py-2 bg-zinc-800">
+              <span class="text-sm text-zinc-500">Windows (PowerShell)</span>
+              <CopyBtn client:load transition:persist="copy-bun-windows" text={bunWindows} />
+            </div>
+            <Code
+              code={bunWindows}
+              class="px-4 py-3 **:bg-transparent! bg-zinc-900! text-sm"
+              theme={"ayu-mirage"}
+              lang="powershell"
+            />
+          </div>
+          <div class="install-cmd overflow-hidden rounded-lg">
+            <div class="flex justify-between items-center px-4 py-2 bg-zinc-800">
+              <span class="text-sm text-zinc-500">Then install Chronicle</span>
+              <CopyBtn client:load transition:persist="copy-chronicle" text={installChronicle} />
+            </div>
+            <Code
+              code={installChronicle}
+              class="px-4 py-3 **:bg-transparent! bg-zinc-900! text-sm"
+              theme={"ayu-mirage"}
+              lang="bash"
+            />
+          </div>
         </div>
         <TerminalWindow />
       </div>
@@ -50,8 +75,8 @@ bun add -g @atybdot/chronicle`;
 </IndexLayout>
 
 <style>
-  .install-code :global(pre),
-  .install-code :global(code) {
+  .install-cmd :global(pre),
+  .install-cmd :global(code) {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
