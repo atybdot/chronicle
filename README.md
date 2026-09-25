@@ -15,13 +15,23 @@ Chronicle is a monorepo containing:
 
 ## Quick Start
 
-```bash
-# Install globally with Bun
-bun add -g @atybdot/chronicle
+Install [Bun](https://bun.sh), then open a new terminal.
 
-# Or run directly with bunx
-bunx chronicle
+```bash
+# macOS / Linux
+curl -fsSL https://bun.sh/install | bash
 ```
+
+```powershell
+# Windows (PowerShell)
+powershell -c "irm bun.sh/install.ps1 | iex"
+```
+
+```bash
+bun add -g @atybdot/chronicle
+```
+
+Or run it once without installing: `bunx @atybdot/chronicle`
 
 ```bash
 # Interactive setup

@@ -9,7 +9,7 @@
     "chronicle": "dist/index.js"
   },
   "scripts": {
-    "build": "bun build src/index.ts --outfile dist/index.js --target bun --compile",
+    "build": "bun build src/index.ts --outfile dist/index.js --target bun",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint",
